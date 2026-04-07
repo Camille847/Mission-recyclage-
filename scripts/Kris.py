@@ -8,8 +8,8 @@ scale = 0.15
 
 # ─── Assets ───────────────────────────────────────────────────────────────────
 images = {
-    'idle':     load_image('personnage/Kris.png',   scale=scale),
-    'throwing': load_image('personnage/Kris 2.png', scale=scale),
+    'idle':     load_image('../assets/personnage/Kris.png',   scale=scale),
+    'throwing': load_image('../assets/personnage/Kris 2.png', scale=scale),
 }
 
 launch_sound = pygame.mixer.Sound('./assets/launch_jump.mp3')

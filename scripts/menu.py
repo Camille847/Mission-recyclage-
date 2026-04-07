@@ -5,22 +5,22 @@ import math
 font_path = 'assets/ComicNeue-Bold.ttf'
 
 
-COLOR_BG_TOP      = (20,  90,  40)   # vert forêt profond
-COLOR_BG_BOT      = (10,  50,  20)   # vert très sombre
-COLOR_PANEL       = (255, 255, 255, 30)  # panneau semi-transparent
+COLOR_BG_TOP      = (135, 206,  235)   # bleu ciel doux
+COLOR_BG_BOT      = (144,  238,  144) # vert clair,lumineux
+COLOR_PANEL       = (255, 255, 255, 150)  # blanc doux, semi-transparent
+COLOR_PANEL_BORDER = (200, 200, 200) # léger contour pour délimiter
 
-BTN_DEFAULT       = (56,  168,  77)
-BTN_HOVER         = (34,  139,  54)
-BTN_CLICK         = (20,   90,  35)
-BTN_DANGER        = (192,  57,  43)
-BTN_DANGER_HOVER  = (150,  30,  20)
-BTN_TEXT          = (255, 255, 255)
+BTN_DEFAULT       = (56,  168,  77) #vert joyeux
+BTN_HOVER         = (34,  139,  54) #vert plus foncé
+BTN_CLICK         = (20,   90,  35)  #vert sombre
+BTN_DANGER        = (255, 99, 71) # rouge tomate doux
+BTN_DANGER_HOVER  = (200,  50,  30)
+BTN_TEXT          = (255, 255, 255) #blanc
 
-TITLE_COLOR       = (255, 220,  40)   # jaune recyclage
-TITLE_SHADOW      = ( 80,  40,   0)
-SUBTITLE_COLOR    = (180, 255, 160)
-GAMEOVER_COLOR    = (220,  60,  60)
-
+TITLE_COLOR       = (255, 215, 50)   # jaune recyclage
+TITLE_SHADOW      = (80, 50, 10)
+SUBTITLE_COLOR    = (160, 255, 140)
+GAMEOVER_COLOR    = (220, 80, 80)
 LEAF_COLOR        = (80, 200, 100, 160)
 
 
