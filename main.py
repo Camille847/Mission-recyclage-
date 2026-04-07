@@ -1,108 +1,303 @@
 import pygame
-import sys
-import random
-from scripts.waste import Waste
-from scripts.bin import Bin
-from scripts.utils import get_angle
-
-# Initialisation
 pygame.init()
-WIDTH, HEIGHT = 1200, 700
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-clock = pygame.time.Clock()
-FPS = 60
-GRAVITY = 0.5
 
-# Types de déchets disponibles
-WASTE_TYPES = ['banane', 'bouteille', 'canette', 'papier']
+from random import random, randint, choice
 
-# Création des 4 poubelles
-bins = [
-    Bin(250, 550, 'bleue'),
-    Bin(450, 550, 'jaune'),
-    Bin(650, 550, 'marron'),
-    Bin(850, 550, 'verte')
-]
+from scripts.utils import get_angle, smooth, move, clamp, play
+from scripts.waste import WasteManager, WASTE_TYPES
+from scripts.collectibles import BlueBin, YellowBin, BrownBin, GreenBin, BIN_CLASSES
+from scripts.Kris import Kris
+from scripts.menu import Menu
+from scripts.client import Client, TextInput, blit_center
 
-# État du jeu
-current_waste = Waste(150, 450, random.choice(WASTE_TYPES))
-charging = False
-charging_time = 0
-power = 0
-POWER_MIN, POWER_MAX = 5, 25
-score = 0
-font = pygame.font.Font(None, 36)
+WIDTH  = 800
+HEIGHT = 600
+SIZE   = (WIDTH, HEIGHT)
 
-# Charger un décor de fond
-background = pygame.image.load('assets/decors/matin.png')
-background = pygame.transform.scale(background, (WIDTH, HEIGHT))
+menu_music   = './assets/menu_music.mp3'
+ingame_music = './assets/ingame_music.mp3'
+wrong_sound  = pygame.mixer.Sound('./assets/death_frog.mp3')   # son erreur de tri
 
-running = True
-while running:
-    dt = clock.tick(FPS)
-    mouse_pos = pygame.mouse.get_pos()
+background = pygame.image.load('assets/background.png')
 
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
+BINS_PER_LEVEL   = 4    # nombre de poubelles présentes simultanément
+SCORE_PER_CORRECT = 100  # points par bon tri
+PENALTY_WRONG     = 50   # pénalité par mauvais tri
+MAX_LIVES         = 3    # vies du joueur
 
-        if event.type == pygame.MOUSEBUTTONDOWN and not current_waste.launched:
-            charging = True
-            charging_time = 0
 
-        if event.type == pygame.MOUSEBUTTONUP and charging and not current_waste.launched:
-            charging = False
-            power = POWER_MIN + (POWER_MAX - POWER_MIN) * min(charging_time / 1000, 1)
-            angle = get_angle(mouse_pos, current_waste.rect.center)
-            current_waste.launch(power, angle)
+class Game:
+    """
+    Classe principale du jeu Mission Recyclage.
+    Structure calquée sur La Rainette : même event loop, mêmes états.
+    """
 
-    # Chargement de la puissance
-    if charging and not current_waste.launched:
-        charging_time += dt
-        power_ratio = min(charging_time / 1000, 1)
-        power = POWER_MIN + (POWER_MAX - POWER_MIN) * power_ratio
+    def __init__(self):
+        self.width  = WIDTH
+        self.height = HEIGHT
+        self.window = pygame.display.set_mode(SIZE, pygame.FULLSCREEN | pygame.SCALED)
+        pygame.display.set_caption('Mission Recyclage')
+        self.clock   = pygame.time.Clock()
+        self.running = False
 
-    # Mise à jour du déchet
-    current_waste.update(dt, GRAVITY)
+        self.in_game   = False
+        self.game_over = False
 
-    # Vérifier les collisions
-    if current_waste.launched:
-        # Si le déchet sort de l'écran
-        if current_waste.rect.y > HEIGHT or current_waste.rect.x > WIDTH + 200:
-            current_waste = Waste(150, 450, random.choice(WASTE_TYPES))
+        self.mouse_pos      = (0, 0)
+        self.mouse_pressed  = False   # True la frame du clic
+        self.mouse_held     = False   # True tant que maintenu
+        self.mouse_released = False   # True la frame du relâchement
+        self.events         = []
 
-        # Collision avec une poubelle
-        for bin in bins:
-            if current_waste.rect.colliderect(bin.rect):
-                if current_waste.correct_bin[current_waste.type] == bin.type:
-                    score += 10
-                    print(f"✓ Bon tri ! +10 pts (total: {score})")
+        self.score = 0
+        self.lives = MAX_LIVES
+        self.font_score = pygame.font.Font('assets/ComicNeue-Bold.ttf', 36)
+        self.font_lives = pygame.font.Font('assets/ComicNeue-Bold.ttf', 28)
+
+        self.collectibles: list = []   # poubelles actives
+        self.waste_manager = WasteManager(self)
+
+        ground_y = HEIGHT - 80
+        self.kris = Kris(self, bottom=ground_y)
+
+        self.ground_y = ground_y
+
+        self.menu = Menu(self)
+        play(menu_music)
+
+        self.client = Client('mission_recyclage')
+        self.message       = ''
+        self.message_timer = 0
+        self.text_input    = TextInput(
+            (WIDTH / 2, HEIGHT - 75),
+            self.set_username,
+            'pseudo'
+        )
+        if self.client.registered:
+            self.text_input.text = self.client.username
+            self.text_input.resize()
+
+        self._preview_dots = 12
+
+
+    def set_username(self, username):
+        if self.client.registered:
+            res = self.client.setUsername(username)
+        else:
+            res = self.client.register(username)
+        if 'error' in res:
+            self.message       = res['error']
+            self.message_timer = 10000
+
+    def _score_thread(self, score):
+        high = self.client.getMinScore()
+        if score > high:
+            err = self.client.sendScore(score)
+            if err:
+                print(err)
+
+
+    def play(self):
+        self.in_game = True
+        play(ingame_music)
+        self._spawn_bins()
+
+    def retry(self):
+        self._reset()
+        self.in_game = True
+
+    def to_menu(self):
+        play(menu_music)
+        self._reset()
+        self.in_game = False
+
+    def quit(self):
+        self.running = False
+
+    def _reset(self):
+        self.mouse_pressed  = False
+        self.mouse_held     = False
+        self.mouse_released = False
+        self.game_over      = False
+        self.score          = 0
+        self.lives          = MAX_LIVES
+        self.collectibles.clear()
+        self.waste_manager.clear()
+        self.kris = Kris(self, bottom=self.ground_y)
+        self._spawn_bins()
+
+
+    def _spawn_bins(self):
+        """Place BINS_PER_LEVEL poubelles réparties sur la droite de l'écran."""
+        self.collectibles.clear()
+        colors  = list(BIN_CLASSES.keys())
+        chosen  = colors[:]
+        # une poubelle de chaque couleur présente parmi les 4
+        spacing = (WIDTH - WIDTH * 0.35) / BINS_PER_LEVEL
+        x_start = WIDTH * 0.38
+
+        for i, color in enumerate(chosen):
+            BinClass = BIN_CLASSES[color]
+            # on crée un faux objet "platform" minimal pour satisfaire Collectible.__init__
+            bin_obj = _make_bin(BinClass, self, x_start + i * spacing, self.ground_y)
+            self.collectibles.append(bin_obj)
+
+
+    def on_correct_bin(self, waste):
+        self.score += SCORE_PER_CORRECT
+
+    def on_wrong_bin(self, waste, bin_obj):
+        wrong_sound.play()
+        self.lives -= 1
+        self.score  = max(0, self.score - PENALTY_WRONG)
+        self.menu.new_message()   # rappel de tri affiché à l'écran
+        if self.lives <= 0:
+            self._trigger_game_over()
+
+    def _trigger_game_over(self):
+        self.game_over = True
+        self.in_game   = False
+        self.menu.new_message()
+        if self.client.connected and self.client.registered:
+            self.client.thread(self._score_thread, args=(self.score,))
+
+
+    def update(self):
+        dt_ms = self.clock.tick(60)
+        dt    = dt_ms / 1000.0   # secondes
+        pygame.display.set_caption(f'Mission Recyclage – {int(self.clock.get_fps())} fps')
+
+        self.events         = pygame.event.get()
+        self.mouse_pressed  = False
+        self.mouse_released = False
+
+        for event in self.events:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self.mouse_pressed = True
+                self.mouse_held    = True
+
+                # Gestion TextInput menu
+                if not self.in_game and not self.game_over:
+                    if self.text_input.hovered:
+                        self.text_input.focus = True
+                    elif self.text_input.focus:
+                        self.text_input.exit()
+
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                self.mouse_released = True
+                self.mouse_held     = False
+
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    self.quit()
+                elif event.key == pygame.K_r and self.in_game:
+                    self._reset()
+                    self.in_game = True
+
+            elif event.type == pygame.QUIT:
+                self.quit()
+
+        self.mouse_pos = pygame.mouse.get_pos()
+
+        self.window.blit(background, (0, 0))
+
+        pygame.draw.rect(self.window, (60, 40, 20),
+                         (0, self.ground_y, WIDTH, HEIGHT - self.ground_y))
+
+        # ── Jeu actif ─────────────────────────────────────────────────────────
+        if self.in_game and not self.game_over:
+
+            # Poubelles
+            for c in self.collectibles:
+                c.render(self.window, scroll=0)
+
+            if self.kris.charging and self.kris.power > 0:
+                t = 0.0
+                for _ in range(self._preview_dots):
+                    t += 0.04
+                    px, py = move(
+                        (self.kris.rect.right, self.kris.rect.centery),
+                        self.kris.angle,
+                        self.kris.power,
+                        t,
+                        800   # même gravité que waste.py
+                    )
+                    if 0 < px < WIDTH and 0 < py < HEIGHT + 100:
+                        pygame.draw.circle(self.window, (255, 80, 80), (int(px), int(py)), 3)
+
+            self.kris.update(dt, self.mouse_pos,
+                             self.mouse_held, self.mouse_released)
+            self.kris.render(self.window, scroll=0)
+
+            self.waste_manager.update(scroll=0, dt=dt)
+            self.waste_manager.render(self.window, scroll=0)
+
+            self._render_hud()
+
+            if self.menu.death_surf and self.menu.death_rect:
+                self.window.blit(self.menu.death_surf, self.menu.death_rect)
+
+        elif self.game_over:
+            for c in self.collectibles:
+                c.render(self.window, scroll=0)
+            self._render_hud()
+            self.menu.update_game_over()
+            self.menu.render_game_over(self.window)
+
+        # ── Menu principal ────────────────────────────────────────────────────
+        else:
+            self.menu.update_main()
+            self.menu.render_main(self.window)
+
+            # Leaderboard / TextInput
+            if self.message_timer > 0:
+                self.message_timer -= dt_ms
+                if self.message_timer <= 0:
+                    self.message = ''
                 else:
-                    score -= 5
-                    print(f"✗ Mauvais tri ! -5 pts (total: {score})")
+                    font = self.text_input.font
+                    surf, _ = font.render(self.message, 'red', size=20)
+                    blit_center(self.window, surf, (WIDTH / 2, 285))
 
-                current_waste = Waste(150, 450, random.choice(WASTE_TYPES))
-                break
+            self.text_input.update(self.events)
+            self.text_input.render(self.window)
 
-    # Dessin
-    screen.blit(background, (0, 0))
+        pygame.display.flip()
 
-    # Dessiner les poubelles
-    for bin in bins:
-        bin.render(screen)
 
-    # Dessiner le déchet
-    current_waste.render(screen)
+    def _render_hud(self):
+        # Score
+        score_surf = self.font_score.render(f'Score : {self.score}', True, (255, 220, 40))
+        self.window.blit(score_surf, (10, 10))
 
-    # Jauge de puissance
-    if charging:
-        pygame.draw.rect(screen, (255, 0, 0), (50, 50, 200 * (power / POWER_MAX), 20))
+        # Vies (cœurs texte)
+        hearts = '❤ ' * self.lives + '🖤 ' * (MAX_LIVES - self.lives)
+        lives_surf = self.font_lives.render(f'Vies : {self.lives}/{MAX_LIVES}', True, (220, 80, 80))
+        self.window.blit(lives_surf, (10, 52))
 
-    # Score
-    score_surface = font.render(f"Score: {score}", True, (0, 0, 0))
-    screen.blit(score_surface, (10, 10))
+    # ── Run ───────────────────────────────────────────────────────────────────
 
-    pygame.display.flip()
+    def run(self):
+        self.running = True
+        while self.running:
+            self.update()
+        pygame.quit()
 
-pygame.quit()
-sys.exit()
+
+
+class _FakePlatform:
+    """Shim minimal pour satisfaire Collectible.__init__ qui attend un platform."""
+    def __init__(self, cx, bottom):
+        self.rect       = pygame.Rect(cx - 40, bottom - 10, 80, 10)
+        self.collectible = None
+
+
+def _make_bin(BinClass, game, cx, ground_y):
+    plat = _FakePlatform(cx, ground_y)
+    return BinClass(plat, game)
+
+
+
+if __name__ == '__main__':
+    game = Game()
+    game.run()
