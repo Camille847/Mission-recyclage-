@@ -3,7 +3,7 @@ pygame.init()
 
 from random import random, randint, choice
 
-from scripts.utils import get_angle, smooth, move, clamp, play
+from scripts.utils import get_angle, smooth, move, clamp
 from scripts.waste import WasteManager, WASTE_TYPES
 from scripts.bin import BlueBin, YellowBin, BrownBin, GreenBin, BIN_CLASSES
 from scripts.Kris import Kris
@@ -14,28 +14,20 @@ WIDTH  = 800
 HEIGHT = 600
 SIZE   = (WIDTH, HEIGHT)
 
-menu_music   = './assets/menu_music.mp3'
-ingame_music = './assets/ingame_music.mp3'
-wrong_sound  = pygame.mixer.Sound('./assets/death_frog.mp3')   # son erreur de tri
-
 LEVEL_BACKGROUNDS = [
     pygame.image.load('assets/decor/Décor Matin.png'),
     pygame.image.load('assets/decor/Décor Bakery.png'),
     pygame.image.load('assets/decor/Décor Nuit.png'),
 ]
-MAX_LEVEL = len(LEVEL_BACKGROUNDS)  # 3 niveaux
+MAX_LEVEL = len(LEVEL_BACKGROUNDS)
 
-BINS_PER_LEVEL    = 4    # nombre de poubelles présentes simultanément
-SCORE_PER_CORRECT = 100  # points par bon tri
-PENALTY_WRONG     = 50   # pénalité par mauvais tri
-MAX_LIVES         = 3    # vies du joueur
+BINS_PER_LEVEL    = 4
+SCORE_PER_CORRECT = 100
+PENALTY_WRONG     = 50
+MAX_LIVES         = 3
 
 
 class Game:
-    """
-    Classe principale du jeu Mission Recyclage.
-    Structure calquée sur La Rainette : même event loop, mêmes états.
-    """
 
     def __init__(self):
         self.width  = WIDTH
@@ -49,37 +41,35 @@ class Game:
         self.game_over = False
 
         self.mouse_pos      = (0, 0)
-        self.mouse_pressed  = False   # True la frame du clic
-        self.mouse_held     = False   # True tant que maintenu
-        self.mouse_released = False   # True la frame du relâchement
+        self.mouse_pressed  = False
+        self.mouse_held     = False
+        self.mouse_released = False
         self.events         = []
 
         self.score = 0
         self.lives = MAX_LIVES
 
-        self.level           = 0          # index 0-based (0=matin, 1=bakery, 2=nuit)
-        self.bins_filled     = 0          # poubelles remplies depuis début du niveau
-        self.background      = LEVEL_BACKGROUNDS[self.level]
+        self.level        = 0
+        self.bins_filled  = 0
+        self.background   = LEVEL_BACKGROUNDS[self.level]
 
-        self._level_msg_timer = 0         # ms restantes d'affichage du message
+        self._level_msg_timer = 0
         self._level_msg       = ''
         self._level_names     = ['Matin', 'Bakery', 'Soir']
 
-        self.font_score = pygame.font.Font('assets/ComicNeue-Bold.ttf', 36)
-        self.font_lives = pygame.font.Font('assets/ComicNeue-Bold.ttf', 28)
-        self.font_level = pygame.font.Font('assets/ComicNeue-Bold.ttf', 22)
-        self.font_msg   = pygame.font.Font('assets/ComicNeue-Bold.ttf', 42)
+        self.font_score = pygame.font.SysFont('arial', 36, bold=True)
+        self.font_lives = pygame.font.SysFont('arial', 28, bold=True)
+        self.font_level = pygame.font.SysFont('arial', 22, bold=True)
+        self.font_msg = pygame.font.SysFont('arial', 42, bold=True)
 
-        self.collectibles: list = []   # poubelles actives
+        self.collectibles: list = []
         self.waste_manager = WasteManager(self)
 
         ground_y = HEIGHT - 80
         self.kris = Kris(self, bottom=ground_y)
-
         self.ground_y = ground_y
 
         self.menu = Menu(self)
-        play(menu_music)
 
         self.client = Client('mission_recyclage')
         self.message       = ''
@@ -94,7 +84,6 @@ class Game:
             self.text_input.resize()
 
         self._preview_dots = 12
-
 
     def set_username(self, username):
         if self.client.registered:
@@ -112,10 +101,8 @@ class Game:
             if err:
                 print(err)
 
-
     def play(self):
         self.in_game = True
-        play(ingame_music)
         self._spawn_bins()
 
     def retry(self):
@@ -123,7 +110,6 @@ class Game:
         self.in_game = True
 
     def to_menu(self):
-        play(menu_music)
         self._reset()
         self.in_game = False
 
@@ -147,41 +133,31 @@ class Game:
         self.kris = Kris(self, bottom=self.ground_y)
         self._spawn_bins()
 
-
     def _spawn_bins(self):
-        """Place BINS_PER_LEVEL poubelles réparties sur la droite de l'écran."""
         self.collectibles.clear()
         colors  = list(BIN_CLASSES.keys())
-        chosen  = colors[:]
         spacing = (WIDTH - WIDTH * 0.35) / BINS_PER_LEVEL
         x_start = WIDTH * 0.38
-
-        for i, color in enumerate(chosen):
+        for i, color in enumerate(colors):
             BinClass = BIN_CLASSES[color]
-            bin_obj = _make_bin(BinClass, self, x_start + i * spacing, self.ground_y)
+            bin_obj  = _make_bin(BinClass, self, x_start + i * spacing, self.ground_y)
             self.collectibles.append(bin_obj)
 
     def _advance_level(self):
-        """Passe au niveau suivant (décor suivant) ou déclenche la fin de jeu."""
         next_level = self.level + 1
         if next_level >= MAX_LEVEL:
-            # Tous les niveaux complétés → victoire (on traite comme un game over positif)
             self._trigger_game_over()
             return
-
         self.level       = next_level
         self.bins_filled = 0
         self.background  = LEVEL_BACKGROUNDS[self.level]
-
         name = self._level_names[self.level]
         self._level_msg       = f'Niveau {self.level + 1} – {name} !'
-        self._level_msg_timer = 2500   # ms d'affichage
-
+        self._level_msg_timer = 2500
         self.waste_manager.clear()
         self._spawn_bins()
 
     def on_bin_filled(self):
-        """Appelé par Collectible.effect() (via bin.py) quand une poubelle est pleine."""
         self.bins_filled += 1
         if self.bins_filled >= BINS_PER_LEVEL:
             self._advance_level()
@@ -190,7 +166,6 @@ class Game:
         self.score += SCORE_PER_CORRECT
 
     def on_wrong_bin(self, waste, bin_obj):
-        wrong_sound.play()
         self.lives -= 1
         self.score  = max(0, self.score - PENALTY_WRONG)
         self.menu.new_message()
@@ -203,7 +178,6 @@ class Game:
         self.menu.new_message()
         if self.client.connected and self.client.registered:
             self.client.thread(self._score_thread, args=(self.score,))
-
 
     def update(self):
         dt_ms = self.clock.tick(60)
@@ -219,7 +193,6 @@ class Game:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self.mouse_pressed = True
                 self.mouse_held    = True
-
                 if not self.in_game and not self.game_over:
                     if self.text_input.hovered:
                         self.text_input.focus = True
@@ -242,6 +215,7 @@ class Game:
 
         self.mouse_pos = pygame.mouse.get_pos()
 
+        # Fond
         if self.in_game or self.game_over:
             self.window.blit(self.background, (0, 0))
         else:
@@ -251,7 +225,6 @@ class Game:
                          (0, self.ground_y, WIDTH, HEIGHT - self.ground_y))
 
         if self.in_game and not self.game_over:
-
             for c in self.collectibles:
                 c.render(self.window, scroll=0)
 
@@ -261,16 +234,12 @@ class Game:
                     t += 0.04
                     px, py = move(
                         (self.kris.rect.right, self.kris.rect.centery),
-                        self.kris.angle,
-                        self.kris.power,
-                        t,
-                        800
+                        self.kris.angle, self.kris.power, t, 800
                     )
                     if 0 < px < WIDTH and 0 < py < HEIGHT + 100:
                         pygame.draw.circle(self.window, (255, 80, 80), (int(px), int(py)), 3)
 
-            self.kris.update(dt, self.mouse_pos,
-                             self.mouse_held, self.mouse_released)
+            self.kris.update(dt, self.mouse_pos, self.mouse_held, self.mouse_released)
             self.kris.render(self.window, scroll=0)
 
             self.waste_manager.update(scroll=0, dt=dt)
@@ -281,7 +250,6 @@ class Game:
             if self.menu.death_surf and self.menu.death_rect:
                 self.window.blit(self.menu.death_surf, self.menu.death_rect)
 
-            # Message de changement de niveau
             if self._level_msg_timer > 0:
                 self._level_msg_timer -= dt_ms
                 self._render_level_message()
@@ -311,7 +279,6 @@ class Game:
 
         pygame.display.flip()
 
-
     def _render_hud(self):
         score_surf = self.font_score.render(f'Score : {self.score}', True, (255, 220, 40))
         self.window.blit(score_surf, (10, 10))
@@ -329,16 +296,11 @@ class Game:
         self.window.blit(prog_surf, (WIDTH - prog_surf.get_width() - 12, 40))
 
     def _render_level_message(self):
-        """Affiche le nom du nouveau niveau en grand au centre de l'écran."""
-        surf = self.font_msg.render(self._level_msg, True, (255, 240, 80))
-        # Ombre
+        surf   = self.font_msg.render(self._level_msg, True, (255, 240, 80))
         shadow = self.font_msg.render(self._level_msg, True, (60, 40, 0))
-        cx = WIDTH // 2
-        cy = HEIGHT // 2 - 60
+        cx, cy = WIDTH // 2, HEIGHT // 2 - 60
         self.window.blit(shadow, shadow.get_rect(center=(cx + 3, cy + 3)))
         self.window.blit(surf,   surf.get_rect(center=(cx, cy)))
-
-
 
     def run(self):
         self.running = True
@@ -347,18 +309,15 @@ class Game:
         pygame.quit()
 
 
-
 class _FakePlatform:
-    """Shim minimal pour satisfaire Collectible.__init__ qui attend un platform."""
     def __init__(self, cx, bottom):
-        self.rect       = pygame.Rect(cx - 40, bottom - 10, 80, 10)
+        self.rect        = pygame.Rect(cx - 40, bottom - 10, 80, 10)
         self.collectible = None
 
 
 def _make_bin(BinClass, game, cx, ground_y):
     plat = _FakePlatform(cx, ground_y)
     return BinClass(plat, game)
-
 
 
 if __name__ == '__main__':
