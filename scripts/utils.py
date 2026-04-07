@@ -1,14 +1,17 @@
 import pygame
 from math import cos, sin, atan2
 
+from pygame import Surface
+
+
 def lerp(color1, color2, t):
     return tuple(int(a + (b - a) * t) for a, b in zip(color1, color2))
 
 def clamp(value, min_value, max_value):
     return min(max(value, min_value), max_value)
 
-def load_image(name, size=None, scale=1):
-    img = pygame.image.load('assets/' + name)
+def load_image(name: object, size: object = None, scale: object = 1) -> Surface:
+    img = pygame.image.load(name)
     if size is None:
         size = img.get_size()
     if scale != 1:
