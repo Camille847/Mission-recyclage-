@@ -2,7 +2,8 @@ import pygame
 import random
 import math
 
-font_path = 'assets/ComicNeue-Bold.ttf'
+def _font(size):
+    return pygame.font.SysFont('arial', size, bold=True)
 
 
 COLOR_BG_TOP      = (135, 206,  235)   # bleu ciel doux
@@ -48,7 +49,7 @@ class Button:
         self.col_click = (100, 10, 10)   if danger else BTN_CLICK
         self.color     = self.col_base
 
-        self.font           = pygame.font.Font(font_path, 32)
+        self.font = _font(32)
         self.rendered_text  = self.font.render(self.text, True, BTN_TEXT)
 
         w, h = 200, 46
@@ -82,22 +83,22 @@ class Menu:
         self.game  = game
         self._tick = 0   # compteur pour animations
 
-        title_font = pygame.font.Font(font_path, 82)
+        title_font = _font(82)
         self.title_surf  = title_font.render('Mission', True, TITLE_COLOR)
         self.title_rect  = self.title_surf.get_rect(center=(game.width / 2, 85))
 
-        title2_font = pygame.font.Font(font_path, 68)
+        title2_font = _font(68)
         self.title2_surf = title2_font.render('♻ Recyclage !', True, TITLE_COLOR)
         self.title2_rect = self.title2_surf.get_rect(center=(game.width / 2, 160))
 
         self.title_shadow_surf  = title_font.render('Mission',        True, TITLE_SHADOW)
         self.title2_shadow_surf = title2_font.render('♻ Recyclage !', True, TITLE_SHADOW)
 
-        sub_font = pygame.font.Font(font_path, 22)
+        sub_font = _font(22)
         self.sub_surf = sub_font.render('Trie les déchets, sauve la planète !', True, SUBTITLE_COLOR)
         self.sub_rect = self.sub_surf.get_rect(center=(game.width / 2, 215))
 
-        go_font = pygame.font.Font(font_path, 76)
+        go_font = _font(76)
         self.game_over_surf = go_font.render('Game Over', True, GAMEOVER_COLOR)
         self.game_over_rect = self.game_over_surf.get_rect(center=(game.width / 2, 95))
 
@@ -108,7 +109,7 @@ class Menu:
         self.menu_button  = Button(cx, cy,        'Menu')
         self.quit_button  = Button(cx, cy + 60,   'Quitter', danger=True)
 
-        self.death_font = pygame.font.Font(font_path, 28)
+        self.death_font = _font(28)
         self.death_messages = [
             "Plastique → poubelle jaune !",
             "Le verre va dans la verte !",

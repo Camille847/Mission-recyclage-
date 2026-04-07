@@ -1,30 +1,15 @@
 import pygame
 import pygame.freetype
 import threading
-import requests
-from pickle import dumps, loads
-from re import compile, match
-from cryptography.fernet import Fernet
 
-key = b'DfOaFLRVToUyjSRRo0ZqeVAu3Bksp_z9bp-uFpgvfsU='
-
-
-
-def writeFile(data, file):
-    data = dumps(data)
-    cipher = Fernet(key)
-    data = cipher.encrypt(data)
-    with open(file, 'wb') as f:
-        f.write(data)
-
-
-def readFile(file):
-    with open(file, 'rb') as f:
-        data = f.read()
-    cipher = Fernet(key)
-    data = cipher.decrypt(data)
-    return loads(data)
-
+try:
+    import requests
+    from pickle import dumps, loads
+    from re import compile, match
+    from cryptography.fernet import Fernet
+    _DEPS_OK = True
+except ImportError:
+    _DEPS_OK = False
 
 
 def blit_center(surface, source, center):
@@ -34,10 +19,12 @@ def blit_center(surface, source, center):
     ))
 
 
-
 class TextInput:
     def __init__(self, pos, callback, placeholder):
-        self.font        = pygame.freetype.Font('./assets/ComicNeue-Bold.ttf', size=32)
+        try:
+            self.font = pygame.freetype.Font('assets/ComicNeue-Bold.ttf', size=32)
+        except:
+            self.font = pygame.freetype.SysFont('arial', size=32)
         self.center      = pos
         self.callback    = callback
         self.placeholder = placeholder
@@ -93,99 +80,134 @@ class TextInput:
         blit_center(surf, text, self.center)
 
 
-
 class Client:
-    """
-    Gère la connexion au serveur de scores.
-    Identique au client de La Rainette, avec le nom de jeu 'mission_recyclage'.
-    """
-
     def __init__(self, game: str):
-        self.game = game
+        self.game       = game
+        self.connected  = False
+        self.registered = False
+        self.username   = None
+        self.uuid       = None
+        self.url        = ''
+        self.regex      = None
+        self.config     = {}
 
-        self.config = readFile('config/config.dat')
-        self.url    = self.config['URL']
-        self.regex  = compile(self.config['REGEX'])
+        # Si les dépendances ou les fichiers de config manquent, on joue hors-ligne
+        if not _DEPS_OK:
+            print('[Client] Dépendances manquantes, mode hors-ligne.')
+            return
 
         try:
-            response = requests.get(self.url + '/get/' + self.game, timeout=3)
-            self.connected = response.ok and 'error' not in response.json()
+            from pickle import loads
+            from re import compile
+            from cryptography.fernet import Fernet
+
+            key = b'DfOaFLRVToUyjSRRo0ZqeVAu3Bksp_z9bp-uFpgvfsU='
+
+            def readFile(file):
+                with open(file, 'rb') as f:
+                    data = f.read()
+                cipher = Fernet(key)
+                data = cipher.decrypt(data)
+                return loads(data)
+
+            self.config = readFile('config/config.dat')
+            self.url    = self.config['URL']
+            self.regex  = compile(self.config['REGEX'])
+
+            try:
+                import requests
+                response = requests.get(self.url + '/get/' + self.game, timeout=3)
+                self.connected = response.ok and 'error' not in response.json()
+            except Exception as e:
+                print(f'[Client] Serveur inaccessible : {e}')
+                self.connected = False
+
+            data          = readFile('config/data.dat')
+            self.uuid     = data['uuid']
+            self.username = data['username']
+
+            if self.uuid is not None and self.username:
+                self.registered = True
+
         except Exception as e:
-            print(f'[Client] Serveur inaccessible : {e}')
-            self.connected = False
-
-        data           = readFile('config/data.dat')
-        self.uuid      = data['uuid']
-        self.username  = data['username']
-
-        if self.uuid is None or not self.isValidName(self.username):
-            self.username   = None
-            self.registered = False
-        else:
-            self.registered = True
-
+            print(f'[Client] Config introuvable, mode hors-ligne : {e}')
 
     @staticmethod
     def thread(func, args=()):
         t = threading.Thread(target=func, args=args, daemon=True)
         t.start()
 
-
     def isValidName(self, string):
-        if string is None:
+        if string is None or self.regex is None:
             return False
+        from re import match
         return bool(match(self.regex, string))
 
-
     def save(self):
-        writeFile({'uuid': self.uuid, 'username': self.username}, 'config/data.dat')
-
+        if not _DEPS_OK:
+            return
+        try:
+            from pickle import dumps
+            from cryptography.fernet import Fernet
+            import os
+            os.makedirs('config', exist_ok=True)
+            key = b'DfOaFLRVToUyjSRRo0ZqeVAu3Bksp_z9bp-uFpgvfsU='
+            cipher = Fernet(key)
+            data = cipher.encrypt(dumps({'uuid': self.uuid, 'username': self.username}))
+            with open('config/data.dat', 'wb') as f:
+                f.write(data)
+        except Exception as e:
+            print(f'[Client] Impossible de sauvegarder : {e}')
 
     def register(self, username, registered=False):
         if not self.connected:
             return {'error': 'not connected to server'}
         if not self.isValidName(username):
             return {'error': 'invalid username'}
-
-        response = requests.post(
-            url=self.config['URL_ROOT'] + '/register',
-            json={
-                'username': username,
-                'uuid':     self.uuid if registered else None,
-                'key':      self.config['ACCESS_KEY'],
-            },
-        )
-        data = response.json()
-        if 'error' in data:
-            return data
-
-        if not registered:
-            self.uuid       = data['uuid']
-            self.registered = True
-        self.username = username
-        self.save()
-        return {}
+        try:
+            import requests
+            response = requests.post(
+                url=self.config['URL_ROOT'] + '/register',
+                json={'username': username, 'uuid': self.uuid if registered else None,
+                      'key': self.config['ACCESS_KEY']},
+            )
+            data = response.json()
+            if 'error' in data:
+                return data
+            if not registered:
+                self.uuid       = data['uuid']
+                self.registered = True
+            self.username = username
+            self.save()
+            return {}
+        except Exception as e:
+            return {'error': str(e)}
 
     def setUsername(self, username):
         if username == self.username:
             return {}
         return self.register(username, registered=True)
 
-
     def getMinScore(self):
-        """Retourne le meilleur score enregistré (ou -1 si hors ligne)."""
         if not self.connected:
             return -1
-        payload  = 'mode=high:' + self.username if self.registered else 'mode=high'
-        response = requests.get(self.url + '/get/' + self.game + '?' + payload)
-        return int(response.text)
+        try:
+            import requests
+            payload  = 'mode=high:' + self.username if self.registered else 'mode=high'
+            response = requests.get(self.url + '/get/' + self.game + '?' + payload)
+            return int(response.text)
+        except:
+            return -1
 
     def sendScore(self, score: int):
-        """Envoie le score si meilleur que le record. Retourne '' si OK."""
         if self.connected and self.registered and isinstance(score, int):
-            data     = {'uuid': self.uuid, 'score': score, 'key': self.config['ACCESS_KEY']}
-            response = requests.post(self.url + '/edit/' + self.game, json=data)
-            result   = response.json()
-            if 'error' in result:
-                return result['error']
+            try:
+                import requests
+                data     = {'uuid': self.uuid, 'score': score, 'key': self.config['ACCESS_KEY']}
+                response = requests.post(self.url + '/edit/' + self.game, json=data)
+                result   = response.json()
+                if 'error' in result:
+                    return result['error']
+            except Exception as e:
+                return str(e)
         return ''

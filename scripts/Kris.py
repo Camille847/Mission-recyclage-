@@ -7,13 +7,15 @@ from scripts.waste import WasteManager, WASTE_TYPES, _waste_images
 
 scale = 0.15
 
-# ─── Assets ───────────────────────────────────────────────────────────────────
 images = {
-    'idle':     load_image('../assets/personnage/Kris.png',   scale=scale),
-    'throwing': load_image('../assets/personnage/Kris 2.png', scale=scale),
+    'idle':     load_image('assets/personnage/Kris.png',   scale=scale),
+    'throwing': load_image('assets/personnage/Kris 2.png', scale=scale),
 }
 
-launch_sound = pygame.mixer.Sound('./assets/launch_jump.mp3')
+try:
+    launch_sound = pygame.mixer.Sound('assets/launch_jump.mp3')
+except:
+    launch_sound = None
 
 # ─── Constantes de lancer ─────────────────────────────────────────────────────
 MIN_POWER   = 100
@@ -23,15 +25,6 @@ GRAVITY     = 800
 
 
 class Kris:
-    """
-    Personnage joueur positionné à gauche de l'écran.
-
-    Contrôles :
-      - Clic gauche enfoncé  → charge la puissance (jauge visible)
-      - Relâcher le clic     → lance le déchet vers la position de la souris
-      - L'angle est calculé automatiquement depuis Kris vers la souris.
-    """
-
     CHARGE_COLOR_LOW  = (80,  200,  80)
     CHARGE_COLOR_HIGH = (220,  60,  60)
     CHARGE_BAR_W      = 60
@@ -47,7 +40,7 @@ class Kris:
 
         size = self.image.get_size()
         center_x = game.width * 0.10
-        self.rect = pygame.FRect(
+        self.rect = pygame.Rect(
             center_x - size[0] / 2,
             bottom - size[1],
             *size
@@ -62,8 +55,6 @@ class Kris:
         self._bob_t  = 0.0
         self._base_y = self.rect.y
 
-    # ── Interne ───────────────────────────────────────────────────────────────
-
     def _pick_waste(self) -> str:
         return random.choice(list(WASTE_TYPES.keys()))
 
@@ -77,12 +68,9 @@ class Kris:
         b = int(self.CHARGE_COLOR_LOW[2] + (self.CHARGE_COLOR_HIGH[2] - self.CHARGE_COLOR_LOW[2]) * t)
         return (r, g, b)
 
-    # ── API publique ──────────────────────────────────────────────────────────
-
     def update(self, dt: float, mouse_pos: tuple, mouse_down: bool, mouse_released: bool):
         self.angle = get_angle(self.rect.center, mouse_pos)
 
-        # ── Charge ────────────────────────────────────────────────────────────
         if mouse_down and not mouse_released:
             if not self.charging:
                 self.charging = True
@@ -91,18 +79,17 @@ class Kris:
             else:
                 self.power = min(self.power + POWER_SPEED * dt, MAX_POWER)
 
-        # ── Lancer ────────────────────────────────────────────────────────────
         if mouse_released and self.charging:
             self._launch()
 
-        # ── Idle bob ──────────────────────────────────────────────────────────
         if not self.charging:
             self._set_state('idle')
             self._bob_t += dt
             self.rect.y = self._base_y + math.sin(self._bob_t * 3) * 2
 
     def _launch(self):
-        launch_sound.play()
+        if launch_sound:
+            launch_sound.play()
 
         origin_x = self.rect.right
         origin_y = self.rect.centery
@@ -119,8 +106,6 @@ class Kris:
         self.power         = 0.0
         self.current_waste = self._pick_waste()
         self._set_state('idle')
-
-    # ── Rendu ─────────────────────────────────────────────────────────────────
 
     def render(self, surf: pygame.Surface, scroll: int = 0):
         surf.blit(self.image, (self.rect.x - scroll, self.rect.y))
