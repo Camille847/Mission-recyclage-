@@ -1,6 +1,7 @@
 import pygame
 import random
 import math
+from scripts.utils import play
 
 def _font(size):
     return pygame.font.Font(None, size)
@@ -75,217 +76,245 @@ class Button:
         pygame.draw.rect(surface, self.color, self.rect, border_radius=14)
         surface.blit(self.rendered_text, self.text_rect)
 
-
 class Menu:
-    """Menu principal et écran Game Over du jeu Mission Recyclage."""
+        """Menu principal et écran Game Over du jeu Mission Recyclage."""
 
-    def __init__(self, game):
-        self.game  = game
-        self._tick = 0   # compteur pour animations
+        def __init__(self, game):
+            self.game = game
+            self._tick = 0  # compteur pour animations
 
-        title_font = _font(56)
-        self.title_surf  = title_font.render('Mission', True, TITLE_COLOR)
-        self.title_rect  = self.title_surf.get_rect(center=(game.width / 2, 85))
+            # 🎵 Musique du menu
+            if not pygame.mixer.music.get_busy():
+                play("assets/music/music.mp3", 0.3)
 
-        title2_font = _font(46)
-        self.title2_surf = title2_font.render('Recyclage !', True, TITLE_COLOR)
-        self.title2_rect = self.title2_surf.get_rect(center=(game.width // 2, 160))
+            # -----------------------------
+            # TITRES
+            # -----------------------------
+            title_font = _font(56)
+            self.title_surf = title_font.render("Mission", True, TITLE_COLOR)
+            self.title_rect = self.title_surf.get_rect(center=(game.width / 2, 85))
 
-        self.title_shadow_surf  = title_font.render('Mission',        True, TITLE_SHADOW)
-        self.title2_shadow_surf = title2_font.render('Recyclage !', True, TITLE_SHADOW)
+            title2_font = _font(46)
+            self.title2_surf = title2_font.render("Recyclage !", True, TITLE_COLOR)
+            self.title2_rect = self.title2_surf.get_rect(center=(game.width // 2, 160))
 
-        sub_font = _font(18)
-        self.sub_surf = sub_font.render('Trie les déchets, sauve la planète !', True, SUBTITLE_COLOR)
-        self.sub_rect = self.sub_surf.get_rect(center=(game.width / 2, 215))
+            self.title_shadow_surf = title_font.render("Mission", True, TITLE_SHADOW)
+            self.title2_shadow_surf = title2_font.render("Recyclage !", True, TITLE_SHADOW)
 
-        go_font = _font(76)
-        self.game_over_surf = go_font.render('Game Over', True, GAMEOVER_COLOR)
-        self.game_over_rect = self.game_over_surf.get_rect(center=(game.width / 2, 95))
+            sub_font = _font(18)
+            self.sub_surf = sub_font.render(
+                "Trie les déchets, sauve la planète !", True, SUBTITLE_COLOR
+            )
+            self.sub_rect = self.sub_surf.get_rect(center=(game.width / 2, 215))
 
-        cx = game.width // 2
-        cy = game.height // 2
-        self.play_button  = Button(cx, cy - 15,  'Jouer')
-        self.retry_button = Button(cx, cy - 60,  'Rejouer')
-        self.menu_button  = Button(cx, cy,        'Menu')
-        self.quit_button  = Button(cx, cy + 60,   'Quitter', danger=True)
+            # -----------------------------
+            # GAME OVER
+            # -----------------------------
+            go_font = _font(76)
+            self.game_over_surf = go_font.render("Game Over", True, GAMEOVER_COLOR)
+            self.game_over_rect = self.game_over_surf.get_rect(center=(game.width / 2, 95))
 
-        self.death_font = _font(28)
-        self.death_messages = [
-            "Plastique → poubelle jaune !",
-            "Le verre va dans la verte !",
-            "Papier et carton : poubelle bleue !",
-            "Les restes organiques ? La marron !",
-            "Vise bien avant de lancer !",
-            "Attention au tri sélectif !",
-        ]
-        self.death_surf = None
-        self.death_rect = None
+            # -----------------------------
+            # BOUTONS
+            # -----------------------------
+            cx = game.width // 2
+            cy = game.height // 2
+            self.play_button = Button(cx, cy - 15, "Jouer")
+            self.retry_button = Button(cx, cy - 60, "Rejouer")
+            self.menu_button = Button(cx, cy, "Menu")
+            self.quit_button = Button(cx, cy + 60, "Quitter", danger=True)
 
+            # -----------------------------
+            # MESSAGES GAME OVER
+            # -----------------------------
+            self.death_font = _font(28)
+            self.death_messages = [
+                "Plastique → poubelle jaune !",
+                "Le verre va dans la verte !",
+                "Papier et carton : poubelle bleue !",
+                "Les restes organiques ? La marron !",
+                "Vise bien avant de lancer !",
+                "Attention au tri sélectif !",
+            ]
+            self.death_surf = None
+            self.death_rect = None
 
+            # -----------------------------
+            # BACKGROUND (gradient)
+            # -----------------------------
+            self._bg = pygame.Surface((game.width, game.height))
+            for y in range(game.height):
+                t = y / game.height
+                r = int(COLOR_BG_TOP[0] * (1 - t) + COLOR_BG_BOT[0] * t)
+                g = int(COLOR_BG_TOP[1] * (1 - t) + COLOR_BG_BOT[1] * t)
+                b = int(COLOR_BG_TOP[2] * (1 - t) + COLOR_BG_BOT[2] * t)
 
-        self._bg = pygame.Surface((game.width, game.height))
-        for y in range(game.height):
-            t = y / game.height
-            r = int(COLOR_BG_TOP[0] * (1 - t) + COLOR_BG_BOT[0] * t)
-            g = int(COLOR_BG_TOP[1] * (1 - t) + COLOR_BG_BOT[1] * t)
-            b = int(COLOR_BG_TOP[2] * (1 - t) + COLOR_BG_BOT[2] * t)
+                noise = random.randint(-3, 3)
+                pygame.draw.line(
+                    self._bg,
+                    (r + noise, g + noise, b + noise),
+                    (0, y),
+                    (game.width, y),
+                )
 
-            noise = random.randint(-3, 3)
-            pygame.draw.line(self._bg, (r + noise, g + noise, b + noise), (0, y), (game.width, y))
+            # -----------------------------
+            # IMAGES
+            # -----------------------------
+            self.bg_mountain = pygame.image.load("assets/decor/mountain.png").convert_alpha()
+            self.bg_tree = pygame.image.load("assets/decor/tree.png").convert_alpha()
+            self.bg_herbe = pygame.image.load("assets/decor/herbe.png").convert_alpha()
+            self.bg_fleur_rose = pygame.image.load("assets/decor/fleur_rose.png").convert_alpha()
+            self.bg_rocher = pygame.image.load("assets/decor/rocher.png").convert_alpha()
+            self.bg_gros_arbre = pygame.image.load("assets/decor/gros_arbre.png").convert_alpha()
 
-        self.bg_mountain = pygame.image.load("assets/decor/mountain.png").convert_alpha()
-        self.bg_tree = pygame.image.load("assets/decor/tree.png").convert_alpha()
-        self.bg_herbe = pygame.image.load("assets/decor/herbe.png").convert_alpha()
-        self.bg_fleur_rose = pygame.image.load("assets/decor/fleur_rose.png").convert_alpha()
-        self.bg_rocher = pygame.image.load("assets/decor/rocher.png").convert_alpha()
-        self.bg_gros_arbre = pygame.image.load("assets/decor/gros_arbre.png").convert_alpha()
+            ground_y = int(self.game.height * 0.65)
 
-        ground_y = int(self.game.height * 0.65)
+            self.decor_flowers = [
+                (120, ground_y + 25),
+                (300, ground_y + 35),
+                (500, ground_y + 20),
+                (700, ground_y + 30),
+                (900, ground_y + 25),
+            ]
 
-        # 🌸 4-5 fleurs max
-        self.decor_flowers = [
-            (120, ground_y + 25),
-            (300, ground_y + 35),
-            (500, ground_y + 20),
-            (700, ground_y + 30),
-            (900, ground_y + 25),
-        ]
+            self.decor_rocks = [
+                (200, ground_y + 30),
+                (450, ground_y + 35),
+                (650, ground_y + 28),
+                (850, ground_y + 32),
+            ]
 
-        # 🪨 4 rochers max
-        self.decor_rocks = [
-            (200, ground_y + 30),
-            (450, ground_y + 35),
-            (650, ground_y + 28),
-            (850, ground_y + 32),
-        ]
+        def draw(self, screen):
+            pass
 
-    def new_message(self):
-        msg  = random.choice(self.death_messages)
-        surf = self.death_font.render(msg, True, (255, 240, 180))
-        self.death_surf = surf
-        self.death_rect = surf.get_rect(center=(self.game.width / 2, self.game.height - 80))
+        def new_message(self):
+            msg = random.choice(self.death_messages)
+            surf = self.death_font.render(msg, True, (255, 240, 180))
+            self.death_surf = surf
+            self.death_rect = surf.get_rect(
+                center=(self.game.width / 2, self.game.height - 80)
+            )
 
-    def _draw_bg(self, surf):
-        w, h = surf.get_size()
+        def _draw_bg(self, surf):
+            w, h = surf.get_size()
 
-        # -----------------------------
-        # ciel
-        # -----------------------------
-        surf.fill((200, 220, 210))
+            # ciel
+            surf.fill((200, 220, 210))
 
-        # -----------------------------
-        # montagne
-        # -----------------------------
-        mountain_height = int(h * 0.75)
-        mountain = pygame.transform.scale(self.bg_mountain, (w, mountain_height))
-        mountain_y = int(h * 0.25)
-        surf.blit(mountain, (0, mountain_y))
+            # montagne
+            mountain_height = int(h * 0.75)
+            mountain = pygame.transform.scale(self.bg_mountain, (w, mountain_height))
+            mountain_y = int(h * 0.25)
+            surf.blit(mountain, (0, mountain_y))
 
-        # -----------------------------
-        # sol (important pour ancrer)
-        # -----------------------------
-        ground_y = int(h * 0.65)
-        pygame.draw.rect(surf, (170, 200, 180), (0, ground_y, w, h - ground_y))
+            # sol
+            ground_y = int(h * 0.65)
+            pygame.draw.rect(surf, (170, 200, 180), (0, ground_y, w, h - ground_y))
 
-        # -----------------------------
-        # HERBE (base visuelle)
-        # -----------------------------
-        grass_h = int(h * 0.08)
-        grass_w = int(grass_h * 2)
-        grass = pygame.transform.scale(self.bg_herbe, (grass_w, grass_h))
+            # herbe
+            grass_h = int(h * 0.08)
+            grass_w = int(grass_h * 2)
+            grass = pygame.transform.scale(self.bg_herbe, (grass_w, grass_h))
 
-        for x in range(0, w, grass_w - 10):
-            surf.blit(grass, (x, ground_y - 5))
+            for x in range(0, w, grass_w - 10):
+                surf.blit(grass, (x, ground_y - 5))
 
-        # -----------------------------
-        # FLEURS (PAS EN LIGNE)
-        # -----------------------------
-        flower_h = int(h * 0.06)
-        flower = pygame.transform.scale(self.bg_fleur_rose, (flower_h, flower_h))
+            # fleurs
+            flower_h = int(h * 0.06)
+            flower = pygame.transform.scale(self.bg_fleur_rose, (flower_h, flower_h))
+            for x, y in self.decor_flowers:
+                surf.blit(flower, (x, y))
 
-        for x, y in self.decor_flowers:
-            surf.blit(flower, (x, y))
+            # rochers
+            rock_h = int(h * 0.09)
+            rock = pygame.transform.scale(self.bg_rocher, (int(rock_h * 1.3), rock_h))
+            for x, y in self.decor_rocks:
+                surf.blit(rock, (x, y))
 
-        # -----------------------------
-        # ROCHERS (mélangés)
-        # -----------------------------
-        rock_h = int(h * 0.09)
-        rock = pygame.transform.scale(self.bg_rocher, (int(rock_h * 1.3), rock_h))
+            # arbres
+            tree_h = int(h * 0.42)
+            tree_w = int(tree_h * 0.7)
+            tree = pygame.transform.scale(self.bg_gros_arbre, (tree_w, tree_h))
+            tree_y = mountain_y + 14
 
-        for x, y in self.decor_rocks:
-            surf.blit(rock, (x, y))
+            surf.blit(tree, (-10, tree_y))
+            surf.blit(tree, (w - tree_w + 10, tree_y))
 
-        # -----------------------------
-        # ARBRES (CORRIGÉS)
-        # -----------------------------
-        tree_h = int(h * 0.42)
-        tree_w = int(tree_h * 0.7)
-        tree = pygame.transform.scale(self.bg_gros_arbre, (tree_w, tree_h))
+        def _draw_title(self, surf):
+            surf.blit(self.title_shadow_surf, self.title_rect.move(3, 4))
+            surf.blit(self.title2_shadow_surf, (self.title2_rect.x + 3, self.title2_rect.y + 3))
 
-        # aligné avec le bas de la montagne (donc h)
-        tree_y = mountain_y +14  # ajuste entre +5 et +12 selon ton sprite
+            bob = int(math.sin(self._tick * 0.05) * 3)
+            surf.blit(self.title_surf, self.title_rect.move(0, bob))
+            surf.blit(self.title2_surf, self.title2_rect)
+            surf.blit(self.sub_surf, self.sub_rect)
 
-        # bien sur les côtés
-        surf.blit(tree, (-10, tree_y))  # gauche
-        surf.blit(tree, (w - tree_w + 10, tree_y))  # droite
+        def _draw_panel(self, surf, rect, alpha=35):
+            """Panneau blanc semi-transparent derrière les boutons."""
+            panel = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+            panel.fill((255, 255, 255, alpha))
+            pygame.draw.rect(panel, (255, 255, 255, 60), panel.get_rect(), 2, border_radius=18)
+            surf.blit(panel, rect.topleft)
 
-    def _draw_title(self, surf):
-        surf.blit(self.title_shadow_surf,  self.title_rect.move(3, 4))
-        surf.blit(self.title2_shadow_surf,  (self.title2_rect.x + 3, self.title2_rect.y + 3))
-        bob = int(math.sin(self._tick * 0.05) * 3)
-        surf.blit(self.title_surf,  self.title_rect.move(0, bob))
-        surf.blit(self.title2_surf, self.title2_rect)
-        surf.blit(self.sub_surf,    self.sub_rect)
+        def update_main(self):
+            if self.play_button.update(self.game.mouse_pos, self.game.mouse_pressed):
+                pygame.mixer.music.stop()
+                self.game.play()
 
-    def _draw_panel(self, surf, rect, alpha=35):
-        """Panneau blanc semi-transparent derrière les boutons."""
-        panel = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-        panel.fill((255, 255, 255, alpha))
-        pygame.draw.rect(panel, (255, 255, 255, 60),
-                         panel.get_rect(), 2, border_radius=18)
-        surf.blit(panel, rect.topleft)
+            if self.quit_button.update(self.game.mouse_pos, self.game.mouse_pressed):
+                self.game.quit()
 
-    def update_main(self):
-        if self.play_button.update(self.game.mouse_pos, self.game.mouse_pressed):
-            self.game.play()
-        if self.quit_button.update(self.game.mouse_pos, self.game.mouse_pressed):
-            self.game.quit()
+        def update_game_over(self):
+            if self.retry_button.update(self.game.mouse_pos, self.game.mouse_pressed):
+                pygame.mixer.music.stop()
+                self.game.retry()
+                return
 
-    def update_game_over(self):
-        if self.retry_button.update(self.game.mouse_pos, self.game.mouse_pressed):
-            self.game.retry()
-            return
-        if self.menu_button.update(self.game.mouse_pos, self.game.mouse_pressed):
-            self.game.to_menu()
-        if self.quit_button.update(self.game.mouse_pos, self.game.mouse_pressed):
-            self.game.quit()
+            if self.menu_button.update(self.game.mouse_pos, self.game.mouse_pressed):
+                play("assets/music/music.mp3", 0.3)
+                self.game.to_menu()
 
-    def render_main(self, surf):
-        self._draw_bg(surf)
-        self._draw_title(surf)
+            if self.quit_button.update(self.game.mouse_pos, self.game.mouse_pressed):
+                self.game.quit()
 
-        self.play_button.render(surf)
-        self.quit_button.render(surf)
+        def render_main(self, surf):
+            self._draw_bg(surf)
+            self._draw_title(surf)
 
-    def render_game_over(self, surf):
-        self._draw_bg(surf)
+            self.play_button.render(surf)
+            self.quit_button.render(surf)
 
-        bob = int(math.sin(self._tick * 0.05) * 3)
-        surf.blit(self.game_over_surf, self.game_over_rect.move(0, bob))
+        def render_game_over(self, surf):
+            self._draw_bg(surf)
 
-        if self.death_surf:
-            pad = 12
-            box = self.death_rect.inflate(pad * 2, pad * 2)
-            self._draw_panel(surf, box, alpha=60)
-            surf.blit(self.death_surf, self.death_rect)
+            bob = int(math.sin(self._tick * 0.05) * 3)
+            surf.blit(self.game_over_surf, self.game_over_rect.move(0, bob))
 
-        top_btn = min(self.retry_button.rect.y, self.menu_button.rect.y, self.quit_button.rect.y)
-        bot_btn = max(self.retry_button.rect.bottom, self.menu_button.rect.bottom, self.quit_button.rect.bottom)
-        panel_rect = pygame.Rect(self.game.width // 2 - 120, top_btn - 12,
-                                 240, bot_btn - top_btn + 24)
-        self._draw_panel(surf, panel_rect)
+            if self.death_surf:
+                pad = 12
+                box = self.death_rect.inflate(pad * 2, pad * 2)
+                self._draw_panel(surf, box, alpha=60)
+                surf.blit(self.death_surf, self.death_rect)
 
-        self.retry_button.render(surf)
-        self.menu_button.render(surf)
-        self.quit_button.render(surf)
+            top_btn = min(
+                self.retry_button.rect.y,
+                self.menu_button.rect.y,
+                self.quit_button.rect.y,
+            )
+            bot_btn = max(
+                self.retry_button.rect.bottom,
+                self.menu_button.rect.bottom,
+                self.quit_button.rect.bottom,
+            )
+            panel_rect = pygame.Rect(
+                self.game.width // 2 - 120,
+                top_btn - 12,
+                240,
+                bot_btn - top_btn + 24,
+            )
+            self._draw_panel(surf, panel_rect)
+
+            self.retry_button.render(surf)
+            self.menu_button.render(surf)
+            self.quit_button.render(surf)
 
