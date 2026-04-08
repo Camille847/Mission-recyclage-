@@ -80,6 +80,7 @@ class Menu:
         """Menu principal et écran Game Over du jeu Mission Recyclage."""
 
         def __init__(self, game):
+            self.show_menu_bg = True
             self.game = game
             self._tick = 0  # compteur pour animations
 
@@ -259,6 +260,7 @@ class Menu:
         def update_main(self):
             if self.play_button.update(self.game.mouse_pos, self.game.mouse_pressed):
                 pygame.mixer.music.stop()
+                self.show_menu_bg = False
                 self.game.play()
 
             if self.quit_button.update(self.game.mouse_pos, self.game.mouse_pressed):
@@ -278,7 +280,8 @@ class Menu:
                 self.game.quit()
 
         def render_main(self, surf):
-            self._draw_bg(surf)
+            if self.show_menu_bg:
+                self._draw_bg(surf)
             self._draw_title(surf)
 
             self.play_button.render(surf)

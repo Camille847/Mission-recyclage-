@@ -14,12 +14,20 @@ WIDTH  = 800
 HEIGHT = 600
 SIZE   = (WIDTH, HEIGHT)
 
-LEVEL_BACKGROUNDS = [
-    pygame.image.load('assets/decor/Décor Matin.png'),
-    pygame.image.load('assets/decor/Décor Bakery.png'),
-    pygame.image.load('assets/decor/Décor Nuit.png'),
+def load_bg(path):
+    return pygame.transform.smoothscale(
+        pygame.image.load(path).convert(),
+        (WIDTH, HEIGHT)
+    )
+
+
+LEVEL_BACKGROUNDS_PATHS = [
+    'assets/decor/Décor Matin.png',
+    'assets/decor/Décor Bakery.png',
+    'assets/decor/Décor Nuit.png',
 ]
-MAX_LEVEL = len(LEVEL_BACKGROUNDS)
+
+MAX_LEVEL = len(LEVEL_BACKGROUNDS_PATHS)
 
 BINS_PER_LEVEL    = 4
 SCORE_PER_CORRECT = 100
@@ -43,8 +51,9 @@ class Game:
     def __init__(self):
         self.width  = WIDTH
         self.height = HEIGHT
-        self.window = pygame.display.set_mode(SIZE, pygame.FULLSCREEN | pygame.SCALED)
+        self.window = pygame.display.set_mode(SIZE)
         pygame.display.set_caption('Mission Recyclage')
+        self.level_backgrounds = [load_bg(p) for p in LEVEL_BACKGROUNDS_PATHS]
         self.clock   = pygame.time.Clock()
         self.running = False
 
@@ -64,7 +73,7 @@ class Game:
 
         self.level        = 0
         self.bins_filled  = 0
-        self.background   = LEVEL_BACKGROUNDS[self.level]
+        self.background = self.level_backgrounds[self.level]
 
         self._level_msg_timer = 0
         self._level_msg       = ''
@@ -112,6 +121,7 @@ class Game:
                 print(err)
 
     def play(self):
+        self.window = pygame.display.set_mode(SIZE, pygame.FULLSCREEN)
         self.in_game = True
         self._spawn_bins()
 
@@ -120,6 +130,7 @@ class Game:
         self.in_game = True
 
     def to_menu(self):
+        self.window = pygame.display.set_mode(SIZE)
         self._reset()
         self.in_game = False
 
@@ -136,7 +147,7 @@ class Game:
         self.correct_per_color = {c: 0 for c in BAR_ORDER}
         self.level          = 0
         self.bins_filled    = 0
-        self.background     = LEVEL_BACKGROUNDS[self.level]
+        self.background     = self.level_backgrounds[self.level]
         self._level_msg_timer = 0
         self._level_msg       = ''
         self.collectibles.clear()
@@ -162,7 +173,7 @@ class Game:
         self.level       = next_level
         self.bins_filled = 0
         self.correct_per_color = {c: 0 for c in BAR_ORDER}
-        self.background  = LEVEL_BACKGROUNDS[self.level]
+        self.background  = self.level_backgrounds[self.level]
         name = self._level_names[self.level]
         self._level_msg       = f'Niveau {self.level + 1} – {name} !'
         self._level_msg_timer = 2500
@@ -235,10 +246,8 @@ class Game:
         if self.in_game or self.game_over:
             self.window.blit(self.background, (0, 0))
         else:
-            self.window.blit(LEVEL_BACKGROUNDS[0], (0, 0))
+            self.window.blit(self.level_backgrounds[0], (0, 0))
 
-        pygame.draw.rect(self.window, (60, 40, 20),
-                         (0, self.ground_y, WIDTH, HEIGHT - self.ground_y))
 
         if self.in_game and not self.game_over:
             for c in self.collectibles:
