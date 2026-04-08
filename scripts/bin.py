@@ -2,10 +2,10 @@ import pygame
 from scripts.utils import load_image
 
 
-blue_bin_image   = load_image('assets/poubelles/BlueBin.png',   scale=0.5)
-yellow_bin_image = load_image('assets/poubelles/YellowBin.png', scale=0.5)
-brown_bin_image  = load_image('assets/poubelles/BrownBin.png',  scale=0.5)
-green_bin_image  = load_image('assets/poubelles/GreenBin.png',  scale=0.5)
+blue_bin_image   = load_image('assets/poubelles/BlueBin.png',   scale=0.11)
+yellow_bin_image = load_image('assets/poubelles/YellowBin.png', scale=0.11)
+brown_bin_image  = load_image('assets/poubelles/BrownBin.png',  scale=0.11)
+green_bin_image  = load_image('assets/poubelles/GreenBin.png',  scale=0.11)
 
 MAX_WASTE      = 5
 GAUGE_WIDTH    = 50

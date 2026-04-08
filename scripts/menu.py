@@ -288,3 +288,4 @@ class Menu:
         self.retry_button.render(surf)
         self.menu_button.render(surf)
         self.quit_button.render(surf)
+

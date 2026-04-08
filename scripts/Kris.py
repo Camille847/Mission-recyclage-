@@ -5,11 +5,28 @@ import random
 from scripts.utils import load_image, get_angle
 from scripts.waste import WasteManager, WASTE_TYPES, _waste_images
 
-scale = 0.15
+scale = 0.08
+
+# Charger les deux images
+_img_idle     = load_image('assets/personnage/Kris.png',   scale=scale)
+_img_throwing = load_image('assets/personnage/Kris 2.png', scale=scale)
+
+# Forcer la même hauteur pour éviter la superposition au changement d'état
+# On prend la hauteur max et on redimensionne en gardant les proportions
+_target_h = max(_img_idle.get_height(), _img_throwing.get_height())
+
+def _resize_to_height(img, h):
+    w = img.get_width()
+    orig_h = img.get_height()
+    new_w = int(w * h / orig_h)
+    return pygame.transform.scale(img, (new_w, h))
+
+_img_idle     = _resize_to_height(_img_idle,     _target_h)
+_img_throwing = _resize_to_height(_img_throwing, _target_h)
 
 images = {
-    'idle':     load_image('assets/personnage/Kris.png',   scale=scale),
-    'throwing': load_image('assets/personnage/Kris 2.png', scale=scale),
+    'idle':     _img_idle,
+    'throwing': _img_throwing,
 }
 
 try:
@@ -38,13 +55,16 @@ class Kris:
         self.state  = 'idle'
         self.image  = self.images[self.state]
 
-        size = self.image.get_size()
+        # On utilise l'image idle pour définir le rect de base
+        size = _img_idle.get_size()
         center_x = game.width * 0.10
         self.rect = pygame.Rect(
             center_x - size[0] / 2,
-            bottom - size[1],
-            *size
+            bottom - size[1],   # ancrage bas constant
+            size[0],
+            size[1]
         )
+        self._bottom = bottom  # on mémorise le bas pour ancrer correctement
 
         self.current_waste = self._pick_waste()
 
@@ -61,6 +81,15 @@ class Kris:
     def _set_state(self, state: str):
         self.state = state
         self.image = self.images[state]
+        # Recalcule le rect en gardant le bas et le centre X constants
+        new_w = self.image.get_width()
+        new_h = self.image.get_height()
+        self.rect = pygame.Rect(
+            self.rect.centerx - new_w // 2,
+            self._bottom - new_h,
+            new_w,
+            new_h
+        )
 
     def _lerp_color(self, t: float):
         r = int(self.CHARGE_COLOR_LOW[0] + (self.CHARGE_COLOR_HIGH[0] - self.CHARGE_COLOR_LOW[0]) * t)
@@ -69,7 +98,8 @@ class Kris:
         return (r, g, b)
 
     def update(self, dt: float, mouse_pos: tuple, mouse_down: bool, mouse_released: bool):
-        self.angle = get_angle(self.rect.center, mouse_pos)
+        # angle depuis le perso vers la souris (ordre correct)
+        self.angle = get_angle(mouse_pos, self.rect.center)
 
         if mouse_down and not mouse_released:
             if not self.charging:
@@ -85,7 +115,9 @@ class Kris:
         if not self.charging:
             self._set_state('idle')
             self._bob_t += dt
-            self.rect.y = self._base_y + math.sin(self._bob_t * 3) * 2
+            # bob vertical : on déplace uniquement _base_y en Y
+            bob_offset = int(math.sin(self._bob_t * 3) * 2)
+            self.rect.y = (self._bottom - self.rect.height) + bob_offset
 
     def _launch(self):
         if launch_sound:

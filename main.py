@@ -25,6 +25,17 @@ BINS_PER_LEVEL    = 4
 SCORE_PER_CORRECT = 100
 PENALTY_WRONG     = 50
 MAX_LIVES         = 3
+MAX_CORRECT       = 5  # segments par barre = MAX_WASTE dans bin.py
+
+BAR_COLORS = {
+    'blue':   (70,  130, 210),
+    'yellow': (230, 200,  40),
+    'brown':  (140,  90,  40),
+    'green':  ( 50, 170,  60),
+}
+BAR_ORDER = ['blue', 'yellow', 'brown', 'green']
+
+GRAVITY = 800
 
 
 class Game:
@@ -49,6 +60,8 @@ class Game:
         self.score = 0
         self.lives = MAX_LIVES
 
+        self.correct_per_color = {c: 0 for c in BAR_ORDER}
+
         self.level        = 0
         self.bins_filled  = 0
         self.background   = LEVEL_BACKGROUNDS[self.level]
@@ -57,10 +70,9 @@ class Game:
         self._level_msg       = ''
         self._level_names     = ['Matin', 'Bakery', 'Soir']
 
-        self.font_score = pygame.font.SysFont('arial', 36, bold=True)
-        self.font_lives = pygame.font.SysFont('arial', 28, bold=True)
+        self.font_score = pygame.font.SysFont('arial', 26, bold=True)
         self.font_level = pygame.font.SysFont('arial', 22, bold=True)
-        self.font_msg = pygame.font.SysFont('arial', 42, bold=True)
+        self.font_msg   = pygame.font.SysFont('arial', 42, bold=True)
 
         self.collectibles: list = []
         self.waste_manager = WasteManager(self)
@@ -82,8 +94,6 @@ class Game:
         if self.client.registered:
             self.text_input.text = self.client.username
             self.text_input.resize()
-
-        self._preview_dots = 12
 
     def set_username(self, username):
         if self.client.registered:
@@ -123,6 +133,7 @@ class Game:
         self.game_over      = False
         self.score          = 0
         self.lives          = MAX_LIVES
+        self.correct_per_color = {c: 0 for c in BAR_ORDER}
         self.level          = 0
         self.bins_filled    = 0
         self.background     = LEVEL_BACKGROUNDS[self.level]
@@ -150,6 +161,7 @@ class Game:
             return
         self.level       = next_level
         self.bins_filled = 0
+        self.correct_per_color = {c: 0 for c in BAR_ORDER}
         self.background  = LEVEL_BACKGROUNDS[self.level]
         name = self._level_names[self.level]
         self._level_msg       = f'Niveau {self.level + 1} – {name} !'
@@ -164,6 +176,11 @@ class Game:
 
     def on_correct_bin(self, waste):
         self.score += SCORE_PER_CORRECT
+        color = waste.bin_color
+        if color in self.correct_per_color:
+            self.correct_per_color[color] = min(
+                self.correct_per_color[color] + 1, MAX_CORRECT
+            )
 
     def on_wrong_bin(self, waste, bin_obj):
         self.lives -= 1
@@ -215,7 +232,6 @@ class Game:
 
         self.mouse_pos = pygame.mouse.get_pos()
 
-        # Fond
         if self.in_game or self.game_over:
             self.window.blit(self.background, (0, 0))
         else:
@@ -228,16 +244,25 @@ class Game:
             for c in self.collectibles:
                 c.render(self.window, scroll=0)
 
-            if self.kris.charging and self.kris.power > 0:
-                t = 0.0
-                for _ in range(self._preview_dots):
-                    t += 0.04
-                    px, py = move(
-                        (self.kris.rect.right, self.kris.rect.centery),
-                        self.kris.angle, self.kris.power, t, 800
-                    )
-                    if 0 < px < WIDTH and 0 < py < HEIGHT + 100:
-                        pygame.draw.circle(self.window, (255, 80, 80), (int(px), int(py)), 3)
+            # Trajectoire : on simule jusqu'à ce que le projectile touche le sol
+            # ou sorte de l'écran, avec des points espacés régulièrement
+            if self.kris.charging and self.kris.power > 0 and not any(w.active for w in self.waste_manager.wastes):
+                ipos = (self.kris.rect.right, self.kris.rect.centery)
+                step = 0.003   # pas de temps entre chaque point
+                t = step
+                prev_point = None
+                for _ in range(60):  # 60 points max
+                    x, y = move(ipos, self.kris.angle, self.kris.power, t, GRAVITY)
+                    t += step
+                    if x < 0 or x > WIDTH + 50:
+                        break
+                    if y > self.ground_y:
+                        break
+                    # on dessine un point tous les 2 pas pour espacer
+                    if _ % 2 == 0:
+                        alpha = int(255 * (1 - _ / 60))  # fondu vers la fin
+                        radius = 3
+                        pygame.draw.circle(self.window, (255, 80, 80), (int(x), int(y)), radius)
 
             self.kris.update(dt, self.mouse_pos, self.mouse_held, self.mouse_released)
             self.kris.render(self.window, scroll=0)
@@ -274,26 +299,43 @@ class Game:
                     surf, _ = font.render(self.message, 'red', size=20)
                     blit_center(self.window, surf, (WIDTH / 2, 285))
 
-            self.text_input.update(self.events)
-            self.text_input.render(self.window)
-
         pygame.display.flip()
 
     def _render_hud(self):
         score_surf = self.font_score.render(f'Score : {self.score}', True, (255, 220, 40))
-        self.window.blit(score_surf, (10, 10))
+        self.window.blit(score_surf, (10, 8))
 
-        lives_surf = self.font_lives.render(f'Vies : {self.lives}/{MAX_LIVES}', True, (220, 80, 80))
-        self.window.blit(lives_surf, (10, 52))
+        seg_w   = 22
+        seg_h   = 10
+        seg_gap = 3
+        bar_gap = 10
+        bx      = 10
+        by      = 38
+
+        for i, color_name in enumerate(BAR_ORDER):
+            color = BAR_COLORS[color_name]
+            count = self.correct_per_color[color_name]
+            x = bx + i * (MAX_CORRECT * (seg_w + seg_gap) + bar_gap)
+            for s in range(MAX_CORRECT):
+                rx = x + s * (seg_w + seg_gap)
+                rect = pygame.Rect(rx, by, seg_w, seg_h)
+                if s < count:
+                    pygame.draw.rect(self.window, color, rect, border_radius=3)
+                    lighter = tuple(min(c + 60, 255) for c in color)
+                    highlight = pygame.Rect(rx + 2, by + 1, seg_w - 4, 3)
+                    pygame.draw.rect(self.window, lighter, highlight, border_radius=2)
+                else:
+                    pygame.draw.rect(self.window, (30, 30, 30), rect, border_radius=3)
+                pygame.draw.rect(self.window, (20, 20, 20), rect, 1, border_radius=3)
 
         name = self._level_names[self.level]
         level_surf = self.font_level.render(f'Niveau {self.level + 1} – {name}', True, (200, 240, 200))
-        self.window.blit(level_surf, (WIDTH - level_surf.get_width() - 12, 12))
+        self.window.blit(level_surf, (WIDTH - level_surf.get_width() - 12, 8))
 
         prog_surf = self.font_level.render(
             f'Poubelles : {self.bins_filled}/{BINS_PER_LEVEL}', True, (200, 240, 200)
         )
-        self.window.blit(prog_surf, (WIDTH - prog_surf.get_width() - 12, 40))
+        self.window.blit(prog_surf, (WIDTH - prog_surf.get_width() - 12, 34))
 
     def _render_level_message(self):
         surf   = self.font_msg.render(self._level_msg, True, (255, 240, 80))
@@ -311,7 +353,7 @@ class Game:
 
 class _FakePlatform:
     def __init__(self, cx, bottom):
-        self.rect        = pygame.Rect(cx - 40, bottom - 10, 80, 10)
+        self.rect        = pygame.Rect(cx - 40, bottom, 80, 10)
         self.collectible = None
 
 

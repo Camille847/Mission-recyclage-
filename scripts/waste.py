@@ -4,10 +4,10 @@ from scripts.utils import load_image, move, get_angle
 
 
 WASTE_TYPES = {
-    'papier':    {'image': 'assets/dechets/Papier.png',    'bin_color': 'blue',   'scale': 0.12},
-    'bouteille': {'image': 'assets/dechets/Bouteille.png', 'bin_color': 'yellow', 'scale': 0.12},
-    'canette':   {'image': 'assets/dechets/canette.png',   'bin_color': 'yellow', 'scale': 0.12},
-    'banane':    {'image': 'assets/dechets/Banane.png',    'bin_color': 'brown',  'scale': 0.12},
+    'papier':    {'image': 'assets/dechets/Papier.png',    'bin_color': 'blue',   'scale': 0.05},
+    'bouteille': {'image': 'assets/dechets/Bouteille.png', 'bin_color': 'yellow', 'scale': 0.05},
+    'canette':   {'image': 'assets/dechets/canette.png',   'bin_color': 'yellow', 'scale': 0.05},
+    'banane':    {'image': 'assets/dechets/Banane.png',    'bin_color': 'brown',  'scale': 0.05},
 }
 
 _waste_images = {}
@@ -24,13 +24,12 @@ class Waste:
     def __init__(self, game, waste_type: str,
                  x: float, y: float,
                  angle: float, power: float = POWER, gravity: float = GRAVITY):
-        self.game      = game
+        self.game       = game
         self.waste_type = waste_type
         self.bin_color  = WASTE_TYPES[waste_type]['bin_color']
 
         self._base_image = _waste_images[waste_type]
-        self.image       = self._base_image
-        self.size        = self.image.get_size()
+        self._base_size  = self._base_image.get_size()
 
         self.origin_x = float(x)
         self.origin_y = float(y)
@@ -42,11 +41,13 @@ class Waste:
         self.x = self.origin_x
         self.y = self.origin_y
 
+        # rect de collision basé sur l'image NON-rotée (taille fixe)
         self.rect = pygame.Rect(
-            int(self.x - self.size[0] / 2),
-            int(self.y - self.size[1] / 2),
-            *self.size
+            int(self.x - self._base_size[0] / 2),
+            int(self.y - self._base_size[1] / 2),
+            *self._base_size
         )
+
         self.visual_angle = 0.0
         self.active = True
 
@@ -63,13 +64,12 @@ class Waste:
         )
 
         self.visual_angle = (self.visual_angle + ROTATION_SPEED) % 360
-        self.image = pygame.transform.rotate(self._base_image, -self.visual_angle)
-        self.size  = self.image.get_size()
 
+        # rect de collision : taille fixe (image de base), centré sur x/y
         self.rect = pygame.Rect(
-            int(self.x - self.size[0] / 2),
-            int(self.y - self.size[1] / 2),
-            *self.size
+            int(self.x - self._base_size[0] / 2),
+            int(self.y - self._base_size[1] / 2),
+            *self._base_size
         )
 
         if (self.y > self.game.height + 100 or
@@ -95,9 +95,13 @@ class Waste:
     def render(self, surf, scroll):
         if not self.active:
             return
-        draw_x = int(self.x - self.size[0] / 2) - scroll
-        draw_y = int(self.y - self.size[1] / 2)
-        surf.blit(self.image, (draw_x, draw_y))
+        # On fait la rotation à la volée uniquement pour l'affichage
+        rotated = pygame.transform.rotate(self._base_image, -self.visual_angle)
+        rot_w, rot_h = rotated.get_size()
+        # On centre l'image rotée sur la position réelle du déchet
+        draw_x = int(self.x - rot_w / 2) - scroll
+        draw_y = int(self.y - rot_h / 2)
+        surf.blit(rotated, (draw_x, draw_y))
 
 
 class WasteManager:
