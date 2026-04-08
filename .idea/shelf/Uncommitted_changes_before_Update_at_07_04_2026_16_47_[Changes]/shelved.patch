@@ -1,0 +1,43 @@
+Index: scripts/waste.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>import pygame\r\n\r\nfrom scripts.utils import move, load_image\r\nfrom scripts.bin import\r\n\r\n\r\nscale = 0.15\r\n\r\nimages = {\r\n    'idle': load_image('Kris.png', scale=scale),\r\n    'jumping': load_image('Kris 2.png', scale=scale)\r\n}\r\nimages_divided = {}\r\nfor state, img in images.items():\r\n    images_divided[state] = pygame.transform.scale(img, (img.get_width() / 2, img.get_height() / 2))\r\n\r\nlaunch_sound = pygame.mixer.Sound('./assets/launch_jump.mp3')\r\n\r\n\r\nclass Frog():\r\n    \"\"\"\r\n    The frog controlled by the player.\r\n    \"\"\"\r\n    def __init__(self, center_x, bottom):\r\n        self.state = 'idle'\r\n        self.images = images\r\n        self.image = self.images[self.state]\r\n        self.base_size = self.image.get_size() # (60, 50)\r\n        self.size = self.base_size\r\n        self.rect = pygame.FRect(center_x - self.size[0] / 2, bottom - self.size[1], *self.size)\r\n        self.jumping = False\r\n        self.velocity = 0\r\n        self.init_pos = self.rect.center\r\n        self.time = 0\r\n        self.angle = 0\r\n        self.power = 0\r\n        self.plat_mov = False\r\n        self.platform = None\r\n\r\n        def divide_size(self):\r\n            rect = self.rect.copy()\r\n            self.rect.width /= 2\r\n            self.rect.height /= 2\r\n            self.rect.bottom = rect.bottom\r\n            self.rect.centerx = rect.centerx\r\n            self.images = images_divided\r\n            self.image = self.images[self.state]\r\n\r\n        def collide(self, obj):\r\n            # check for collision between a bin\r\n            return self.rect.colliderect(obj.rect)\r\n\r\n        def launch(self, power, angle):\r\n            # start a new jump\r\n            launch_sound.play()\r\n            self.launch = True\r\n            self.init_pos = self.rect.center\r\n            self.time = 0\r\n            self.angle = angle\r\n            self.power = power\r\n            self.plat_mov = False\r\n            self.set_state('launch')\r\n\r\n        def set_state(self, state):\r\n            # set animation state\r\n            self.state = state\r\n            self.image = self.images[self.state]\r\n\r\n        def update(self, dt, platforms, g):\r\n            \"\"\"\r\n            Update the frog's position and check for collisions.\r\n            \"\"\"\r\n            if self.jumping:\r\n                # calculate new coordinates during a jump\r\n                self.time += dt / 100\r\n                self.rect.center = move(self.init_pos, self.angle, self.power, self.time, g)\r\n\r\n                # check for collisions with platforms\r\n                for platform in platforms:\r\n                    if self.collide(platform):\r\n                        self.rect.bottom = platform.rect.top\r\n                        self.jumping = False\r\n                        self.set_state('idle')\r\n                        platform.touch()\r\n                        # stick to the platform if's is a log\r\n                        if type(platform) is Log:\r\n                            self.plat_mov = True\r\n                            self.platform = platform\r\n\r\n            elif self.plat_mov:\r\n                # move accordingly to the log\r\n                self.rect.bottom = self.platform.rect.top\r\n                self.rect.x += self.platform.speed * self.platform.direction\r\n\r\n            else:\r\n                # stay on the ground\r\n                self.rect.y += 5\r\n                for platform in platforms:\r\n                    if self.collide(platform):\r\n                        self.rect.bottom = platform.rect.top\r\n\r\n        def render(self, surf, scroll):\r\n            surf.blit(self.image, (self.rect.x - scroll, self.rect.y + 3))\r\n\r\n\r\n\r\n\r\n\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/scripts/waste.py b/scripts/waste.py
+--- a/scripts/waste.py	(revision 4ceb20e945c52565ddaada4b2e55d42783e66fa9)
++++ b/scripts/waste.py	(date 1773149545361)
+@@ -3,12 +3,18 @@
+ from scripts.utils import move, load_image
+ from scripts.bin import
+ 
+-
+ scale = 0.15
++scale_2 = 0.05
+ 
+ images = {
+     'idle': load_image('Kris.png', scale=scale),
+-    'jumping': load_image('Kris 2.png', scale=scale)
++    'idle2': load_image('Kris 2.png', scale=scale),
++    'launch1': load_image('Banane.png', scale=scale_2),
++    'launch2': load_image('Canette.png', scale=scale_2),
++    'launch3': load_image('Cup.png', scale=scale_2),
++    'launch4': load_image('Papier 2.png', scale=scale_2),
++    'launch5': load_image('Bouteille.png', scale=scale_2)
++
+ }
+ images_divided = {}
+ for state, img in images.items():
+@@ -17,9 +23,9 @@
+ launch_sound = pygame.mixer.Sound('./assets/launch_jump.mp3')
+ 
+ 
+-class Frog():
++class waste():
+     """
+-    The frog controlled by the player.
++    The waste lanched by the player.
+     """
+     def __init__(self, center_x, bottom):
+         self.state = 'idle'

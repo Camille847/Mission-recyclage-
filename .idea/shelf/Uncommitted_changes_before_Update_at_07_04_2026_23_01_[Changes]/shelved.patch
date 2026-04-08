@@ -1,0 +1,161 @@
+Index: scripts/Kris.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>import pygame\r\nimport random\r\n\r\nfrom scripts.utils import move, load_image, get_angle\r\nfrom scripts.waste import WasteManager, WASTE_TYPES\r\n\r\nscale = 0.15\r\n\r\n# ─── Assets ───────────────────────────────────────────────────────────────────\r\nimages = {\r\n    'idle':     load_image('personnage/Kris.png',   scale=scale),\r\n    'throwing': load_image('personnage/Kris 2.png', scale=scale),\r\n}\r\n\r\nlaunch_sound = pygame.mixer.Sound('./assets/launch_jump.mp3')\r\n\r\n# ─── Constantes de lancer ─────────────────────────────────────────────────────\r\nMIN_POWER   = 100   # puissance minimale (px/s)\r\nMAX_POWER   = 700   # puissance maximale (px/s)\r\nPOWER_SPEED = 300   # px/s² — vitesse de charge par seconde\r\nGRAVITY     = 800   # px/s² — doit correspondre à waste.py\r\n\r\n\r\nclass Kris:\r\n    \"\"\"\r\n    Personnage joueur positionné à gauche de l'écran.\r\n\r\n    Contrôles :\r\n      - Clic gauche enfoncé  → charge la puissance (jauge visible)\r\n      - Relâcher le clic     → lance le déchet vers la position de la souris\r\n      - L'angle est calculé automatiquement depuis Kris vers la souris.\r\n\r\n    Le déchet à lancer est choisi aléatoirement parmi WASTE_TYPES.\r\n    \"\"\"\r\n\r\n    CHARGE_COLOR_LOW  = (80,  200,  80)\r\n    CHARGE_COLOR_HIGH = (220,  60,  60)\r\n    CHARGE_BAR_W      = 60\r\n    CHARGE_BAR_H      = 8\r\n\r\n    def __init__(self, game, bottom: float):\r\n        self.game  = game\r\n        self.waste_manager: WasteManager = game.waste_manager\r\n\r\n        self.images = images\r\n        self.state  = 'idle'\r\n        self.image  = self.images[self.state]\r\n\r\n        size = self.image.get_size()\r\n        # Kris est fixe à gauche, centré horizontalement sur ~10 % de l'écran\r\n        center_x = game.width * 0.10\r\n        self.rect = pygame.FRect(\r\n            center_x - size[0] / 2,\r\n            bottom - size[1],\r\n            *size\r\n        )\r\n\r\n        # Déchet courant à lancer\r\n        self.current_waste = self._pick_waste()\r\n\r\n        # État du lancer\r\n        self.charging  = False   # clic enfoncé\r\n        self.power     = 0.0     # puissance accumulée (px/s)\r\n        self.angle     = 0.0     # angle vers la souris (radians)\r\n\r\n        # Petite animation de rebond en idle\r\n        self._bob_t    = 0.0\r\n        self._base_y   = self.rect.y\r\n\r\n    # ── Interne ───────────────────────────────────────────────────────────────\r\n\r\n    def _pick_waste(self) -> str:\r\n        \"\"\"Choisit un déchet aléatoire parmi ceux disponibles.\"\"\"\r\n        return random.choice(list(WASTE_TYPES.keys()))\r\n\r\n    def _set_state(self, state: str):\r\n        self.state = state\r\n        self.image = self.images[state]\r\n\r\n    def _lerp_color(self, t: float):\r\n        \"\"\"Interpolation de couleur vert→rouge selon la charge (0→1).\"\"\"\r\n        r = int(self.CHARGE_COLOR_LOW[0] + (self.CHARGE_COLOR_HIGH[0] - self.CHARGE_COLOR_LOW[0]) * t)\r\n        g = int(self.CHARGE_COLOR_LOW[1] + (self.CHARGE_COLOR_HIGH[1] - self.CHARGE_COLOR_LOW[1]) * t)\r\n        b = int(self.CHARGE_COLOR_LOW[2] + (self.CHARGE_COLOR_HIGH[2] - self.CHARGE_COLOR_LOW[2]) * t)\r\n        return (r, g, b)\r\n\r\n    # ── API publique ──────────────────────────────────────────────────────────\r\n\r\n    def update(self, dt: float, mouse_pos: tuple, mouse_down: bool, mouse_released: bool):\r\n        \"\"\"\r\n        dt             : delta-time en secondes\r\n        mouse_pos      : (x, y) position souris à l'écran\r\n        mouse_down     : True si le bouton gauche est maintenu enfoncé\r\n        mouse_released : True la frame où le bouton gauche vient d'être relâché\r\n        \"\"\"\r\n        # Calcul de l'angle Kris → souris en permanence\r\n        self.angle = get_angle(self.rect.center, mouse_pos)\r\n\r\n        # ── Charge ────────────────────────────────────────────────────────────\r\n        if mouse_down:\r\n            if not self.charging:\r\n                self.charging = True\r\n                self.power    = MIN_POWER\r\n                self._set_state('throwing')\r\n            else:\r\n                self.power = min(self.power + POWER_SPEED * dt, MAX_POWER)\r\n\r\n        # ── Lancer ────────────────────────────────────────────────────────────\r\n        if mouse_released and self.charging:\r\n            self._launch()\r\n\r\n        # ── Idle bob ──────────────────────────────────────────────────────────\r\n        if not self.charging:\r\n            self._set_state('idle')\r\n            self._bob_t += dt\r\n            self.rect.y = self._base_y + pygame.math.Vector2(0, 0).y  # flat, pas de sin ici\r\n            # petit rebond visuel optionnel :\r\n            import math\r\n            self.rect.y = self._base_y + math.sin(self._bob_t * 3) * 2\r\n\r\n    def _launch(self):\r\n        \"\"\"Lance le déchet courant et prépare le suivant.\"\"\"\r\n        launch_sound.play()\r\n\r\n        # Point de lancement = main droite de Kris (bord droit, milieu vertical)\r\n        origin_x = self.rect.right\r\n        origin_y = self.rect.centery\r\n\r\n        self.waste_manager.launch(\r\n            self.current_waste,\r\n            origin_x, origin_y,\r\n            angle=self.angle,\r\n            power=self.power,\r\n            gravity=GRAVITY,\r\n        )\r\n\r\n        # Réinitialisation\r\n        self.charging     = False\r\n        self.power        = 0.0\r\n        self.current_waste = self._pick_waste()\r\n        self._set_state('idle')\r\n\r\n    # ── Rendu ─────────────────────────────────────────────────────────────────\r\n\r\n    def render(self, surf: pygame.Surface, scroll: int = 0):\r\n        # Sprite de Kris\r\n        surf.blit(self.image, (self.rect.x - scroll, self.rect.y))\r\n\r\n        # Affichage du déchet suivant (icône miniature au-dessus de Kris)\r\n        self._render_next_waste(surf, scroll)\r\n\r\n        # Jauge de puissance pendant la charge\r\n        if self.charging:\r\n            self._render_charge_bar(surf, scroll)\r\n\r\n    def _render_next_waste(self, surf: pygame.Surface, scroll: int):\r\n        \"\"\"Petite icône du déchet à venir, au-dessus de la tête de Kris.\"\"\"\r\n        from scripts.waste import _waste_images\r\n        icon = _waste_images.get(self.current_waste)\r\n        if icon:\r\n            ix = int(self.rect.centerx - icon.get_width() / 2) - scroll\r\n            iy = int(self.rect.top - icon.get_height() - 6)\r\n            surf.blit(icon, (ix, iy))\r\n\r\n    def _render_charge_bar(self, surf: pygame.Surface, scroll: int):\r\n        \"\"\"Jauge de puissance colorée au-dessus de l'icône de déchet.\"\"\"\r\n        t = (self.power - MIN_POWER) / (MAX_POWER - MIN_POWER)\r\n        t = max(0.0, min(1.0, t))\r\n\r\n        bar_x = int(self.rect.centerx - self.CHARGE_BAR_W / 2) - scroll\r\n        bar_y = int(self.rect.top - self.CHARGE_BAR_H - 28)\r\n\r\n        # Fond\r\n        pygame.draw.rect(surf, (50, 50, 50),\r\n                         (bar_x, bar_y, self.CHARGE_BAR_W, self.CHARGE_BAR_H))\r\n        # Remplissage\r\n        fill_w = int(self.CHARGE_BAR_W * t)\r\n        if fill_w > 0:\r\n            pygame.draw.rect(surf, self._lerp_color(t),\r\n                             (bar_x, bar_y, fill_w, self.CHARGE_BAR_H))\r\n        # Bordure\r\n        pygame.draw.rect(surf, (200, 200, 200),\r\n                         (bar_x, bar_y, self.CHARGE_BAR_W, self.CHARGE_BAR_H), 1)
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/scripts/Kris.py b/scripts/Kris.py
+--- a/scripts/Kris.py	(revision 20ad4795dfde769a9770c833d89b3a1b3f66e54b)
++++ b/scripts/Kris.py	(date 1775595681192)
+@@ -134,22 +134,18 @@
+             gravity=GRAVITY,
+         )
+ 
+-        # Réinitialisation
+         self.charging     = False
+         self.power        = 0.0
+         self.current_waste = self._pick_waste()
+         self._set_state('idle')
+ 
+-    # ── Rendu ─────────────────────────────────────────────────────────────────
+ 
+     def render(self, surf: pygame.Surface, scroll: int = 0):
+         # Sprite de Kris
+         surf.blit(self.image, (self.rect.x - scroll, self.rect.y))
+ 
+-        # Affichage du déchet suivant (icône miniature au-dessus de Kris)
+         self._render_next_waste(surf, scroll)
+ 
+-        # Jauge de puissance pendant la charge
+         if self.charging:
+             self._render_charge_bar(surf, scroll)
+ 
+@@ -170,14 +166,14 @@
+         bar_x = int(self.rect.centerx - self.CHARGE_BAR_W / 2) - scroll
+         bar_y = int(self.rect.top - self.CHARGE_BAR_H - 28)
+ 
+-        # Fond
++
+         pygame.draw.rect(surf, (50, 50, 50),
+                          (bar_x, bar_y, self.CHARGE_BAR_W, self.CHARGE_BAR_H))
+-        # Remplissage
++
+         fill_w = int(self.CHARGE_BAR_W * t)
+         if fill_w > 0:
+             pygame.draw.rect(surf, self._lerp_color(t),
+                              (bar_x, bar_y, fill_w, self.CHARGE_BAR_H))
+-        # Bordure
++
+         pygame.draw.rect(surf, (200, 200, 200),
+                          (bar_x, bar_y, self.CHARGE_BAR_W, self.CHARGE_BAR_H), 1)
+\ No newline at end of file
+Index: .idea/inspectionProfiles/profiles_settings.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/inspectionProfiles/profiles_settings.xml b/.idea/inspectionProfiles/profiles_settings.xml
+new file mode 100644
+--- /dev/null	(date 1770881519737)
++++ b/.idea/inspectionProfiles/profiles_settings.xml	(date 1770881519737)
+@@ -0,0 +1,6 @@
++<component name="InspectionProjectProfileManager">
++  <settings>
++    <option name="USE_PROJECT_PROFILE" value="false" />
++    <version value="1.0" />
++  </settings>
++</component>
+\ No newline at end of file
+Index: .idea/Mission-recyclage-.iml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/Mission-recyclage-.iml b/.idea/Mission-recyclage-.iml
+new file mode 100644
+--- /dev/null	(date 1770881519710)
++++ b/.idea/Mission-recyclage-.iml	(date 1770881519710)
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<module type="PYTHON_MODULE" version="4">
++  <component name="NewModuleRootManager">
++    <content url="file://$MODULE_DIR$" />
++    <orderEntry type="jdk" jdkName="Python 3.12" jdkType="Python SDK" />
++    <orderEntry type="sourceFolder" forTests="false" />
++  </component>
++</module>
+\ No newline at end of file
+Index: .idea/modules.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/modules.xml b/.idea/modules.xml
+new file mode 100644
+--- /dev/null	(date 1770881519714)
++++ b/.idea/modules.xml	(date 1770881519714)
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="ProjectModuleManager">
++    <modules>
++      <module fileurl="file://$PROJECT_DIR$/.idea/Mission-recyclage-.iml" filepath="$PROJECT_DIR$/.idea/Mission-recyclage-.iml" />
++    </modules>
++  </component>
++</project>
+\ No newline at end of file
+Index: .idea/misc.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/misc.xml b/.idea/misc.xml
+new file mode 100644
+--- /dev/null	(date 1773135306930)
++++ b/.idea/misc.xml	(date 1773135306930)
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="Black">
++    <option name="sdkName" value="Python 3.12" />
++  </component>
++  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.12" project-jdk-type="Python SDK" />
++</project>
+\ No newline at end of file
+Index: .idea/vcs.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/vcs.xml b/.idea/vcs.xml
+new file mode 100644
+--- /dev/null	(date 1770881519802)
++++ b/.idea/vcs.xml	(date 1770881519802)
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="VcsDirectoryMappings">
++    <mapping directory="" vcs="Git" />
++    <mapping directory="$PROJECT_DIR$" vcs="Git" />
++  </component>
++</project>
+\ No newline at end of file
+Index: .idea/.gitignore
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/.gitignore b/.idea/.gitignore
+new file mode 100644
+--- /dev/null	(date 1770881521272)
++++ b/.idea/.gitignore	(date 1770881521272)
+@@ -0,0 +1,8 @@
++# Default ignored files
++/shelf/
++/workspace.xml
++# Editor-based HTTP Client requests
++/httpRequests/
++# Datasource local storage ignored files
++/dataSources/
++/dataSources.local.xml

@@ -1,0 +1,1010 @@
+Index: main.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>import pygame\r\npygame.init()\r\n\r\nfrom random import random, randint, choice\r\n\r\nfrom scripts.utils import get_angle, smooth, move, clamp, play\r\nfrom scripts.waste import WasteManager, WASTE_TYPES\r\nfrom scripts.bin import BlueBin, YellowBin, BrownBin, GreenBin, BIN_CLASSES\r\nfrom scripts.Kris import Kris\r\nfrom scripts.menu import Menu\r\nfrom scripts.client import Client, TextInput, blit_center\r\n\r\nWIDTH  = 800\r\nHEIGHT = 600\r\nSIZE   = (WIDTH, HEIGHT)\r\n\r\nmenu_music   = './assets/menu_music.mp3'\r\ningame_music = './assets/ingame_music.mp3'\r\nwrong_sound  = pygame.mixer.Sound('./assets/death_frog.mp3')   # son erreur de tri\r\n\r\nLEVEL_BACKGROUNDS = [\r\n    pygame.image.load('assets/decor/Décor Matin.png'),\r\n    pygame.image.load('assets/decor/Décor Bakery.png'),\r\n    pygame.image.load('assets/decor/Décor Nuit.png'),\r\n]\r\nMAX_LEVEL = len(LEVEL_BACKGROUNDS)  # 3 niveaux\r\n\r\nBINS_PER_LEVEL    = 4    # nombre de poubelles présentes simultanément\r\nSCORE_PER_CORRECT = 100  # points par bon tri\r\nPENALTY_WRONG     = 50   # pénalité par mauvais tri\r\nMAX_LIVES         = 3    # vies du joueur\r\n\r\n\r\nclass Game:\r\n    \"\"\"\r\n    Classe principale du jeu Mission Recyclage.\r\n    Structure calquée sur La Rainette : même event loop, mêmes états.\r\n    \"\"\"\r\n\r\n    def __init__(self):\r\n        self.width  = WIDTH\r\n        self.height = HEIGHT\r\n        self.window = pygame.display.set_mode(SIZE, pygame.FULLSCREEN | pygame.SCALED)\r\n        pygame.display.set_caption('Mission Recyclage')\r\n        self.clock   = pygame.time.Clock()\r\n        self.running = False\r\n\r\n        self.in_game   = False\r\n        self.game_over = False\r\n\r\n        self.mouse_pos      = (0, 0)\r\n        self.mouse_pressed  = False   # True la frame du clic\r\n        self.mouse_held     = False   # True tant que maintenu\r\n        self.mouse_released = False   # True la frame du relâchement\r\n        self.events         = []\r\n\r\n        self.score = 0\r\n        self.lives = MAX_LIVES\r\n\r\n        self.level           = 0          # index 0-based (0=matin, 1=bakery, 2=nuit)\r\n        self.bins_filled     = 0          # poubelles remplies depuis début du niveau\r\n        self.background      = LEVEL_BACKGROUNDS[self.level]\r\n\r\n        self._level_msg_timer = 0         # ms restantes d'affichage du message\r\n        self._level_msg       = ''\r\n        self._level_names     = ['Matin', 'Bakery', 'Soir']\r\n\r\n        self.font_score = pygame.font.Font('assets/ComicNeue-Bold.ttf', 36)\r\n        self.font_lives = pygame.font.Font('assets/ComicNeue-Bold.ttf', 28)\r\n        self.font_level = pygame.font.Font('assets/ComicNeue-Bold.ttf', 22)\r\n        self.font_msg   = pygame.font.Font('assets/ComicNeue-Bold.ttf', 42)\r\n\r\n        self.collectibles: list = []   # poubelles actives\r\n        self.waste_manager = WasteManager(self)\r\n\r\n        ground_y = HEIGHT - 80\r\n        self.kris = Kris(self, bottom=ground_y)\r\n\r\n        self.ground_y = ground_y\r\n\r\n        self.menu = Menu(self)\r\n        play(menu_music)\r\n\r\n        self.client = Client('mission_recyclage')\r\n        self.message       = ''\r\n        self.message_timer = 0\r\n        self.text_input    = TextInput(\r\n            (WIDTH / 2, HEIGHT - 75),\r\n            self.set_username,\r\n            'pseudo'\r\n        )\r\n        if self.client.registered:\r\n            self.text_input.text = self.client.username\r\n            self.text_input.resize()\r\n\r\n        self._preview_dots = 12\r\n\r\n\r\n    def set_username(self, username):\r\n        if self.client.registered:\r\n            res = self.client.setUsername(username)\r\n        else:\r\n            res = self.client.register(username)\r\n        if 'error' in res:\r\n            self.message       = res['error']\r\n            self.message_timer = 10000\r\n\r\n    def _score_thread(self, score):\r\n        high = self.client.getMinScore()\r\n        if score > high:\r\n            err = self.client.sendScore(score)\r\n            if err:\r\n                print(err)\r\n\r\n\r\n    def play(self):\r\n        self.in_game = True\r\n        play(ingame_music)\r\n        self._spawn_bins()\r\n\r\n    def retry(self):\r\n        self._reset()\r\n        self.in_game = True\r\n\r\n    def to_menu(self):\r\n        play(menu_music)\r\n        self._reset()\r\n        self.in_game = False\r\n\r\n    def quit(self):\r\n        self.running = False\r\n\r\n    def _reset(self):\r\n        self.mouse_pressed  = False\r\n        self.mouse_held     = False\r\n        self.mouse_released = False\r\n        self.game_over      = False\r\n        self.score          = 0\r\n        self.lives          = MAX_LIVES\r\n        self.level          = 0\r\n        self.bins_filled    = 0\r\n        self.background     = LEVEL_BACKGROUNDS[self.level]\r\n        self._level_msg_timer = 0\r\n        self._level_msg       = ''\r\n        self.collectibles.clear()\r\n        self.waste_manager.clear()\r\n        self.kris = Kris(self, bottom=self.ground_y)\r\n        self._spawn_bins()\r\n\r\n\r\n    def _spawn_bins(self):\r\n        \"\"\"Place BINS_PER_LEVEL poubelles réparties sur la droite de l'écran.\"\"\"\r\n        self.collectibles.clear()\r\n        colors  = list(BIN_CLASSES.keys())\r\n        chosen  = colors[:]\r\n        spacing = (WIDTH - WIDTH * 0.35) / BINS_PER_LEVEL\r\n        x_start = WIDTH * 0.38\r\n\r\n        for i, color in enumerate(chosen):\r\n            BinClass = BIN_CLASSES[color]\r\n            bin_obj = _make_bin(BinClass, self, x_start + i * spacing, self.ground_y)\r\n            self.collectibles.append(bin_obj)\r\n\r\n    def _advance_level(self):\r\n        \"\"\"Passe au niveau suivant (décor suivant) ou déclenche la fin de jeu.\"\"\"\r\n        next_level = self.level + 1\r\n        if next_level >= MAX_LEVEL:\r\n            # Tous les niveaux complétés → victoire (on traite comme un game over positif)\r\n            self._trigger_game_over()\r\n            return\r\n\r\n        self.level       = next_level\r\n        self.bins_filled = 0\r\n        self.background  = LEVEL_BACKGROUNDS[self.level]\r\n\r\n        name = self._level_names[self.level]\r\n        self._level_msg       = f'Niveau {self.level + 1} – {name} !'\r\n        self._level_msg_timer = 2500   # ms d'affichage\r\n\r\n        self.waste_manager.clear()\r\n        self._spawn_bins()\r\n\r\n    def on_bin_filled(self):\r\n        \"\"\"Appelé par Collectible.effect() (via bin.py) quand une poubelle est pleine.\"\"\"\r\n        self.bins_filled += 1\r\n        if self.bins_filled >= BINS_PER_LEVEL:\r\n            self._advance_level()\r\n\r\n    def on_correct_bin(self, waste):\r\n        self.score += SCORE_PER_CORRECT\r\n\r\n    def on_wrong_bin(self, waste, bin_obj):\r\n        wrong_sound.play()\r\n        self.lives -= 1\r\n        self.score  = max(0, self.score - PENALTY_WRONG)\r\n        self.menu.new_message()\r\n        if self.lives <= 0:\r\n            self._trigger_game_over()\r\n\r\n    def _trigger_game_over(self):\r\n        self.game_over = True\r\n        self.in_game   = False\r\n        self.menu.new_message()\r\n        if self.client.connected and self.client.registered:\r\n            self.client.thread(self._score_thread, args=(self.score,))\r\n\r\n\r\n    def update(self):\r\n        dt_ms = self.clock.tick(60)\r\n        dt    = dt_ms / 1000.0\r\n\r\n        pygame.display.set_caption(f'Mission Recyclage – {int(self.clock.get_fps())} fps')\r\n\r\n        self.events         = pygame.event.get()\r\n        self.mouse_pressed  = False\r\n        self.mouse_released = False\r\n\r\n        for event in self.events:\r\n            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:\r\n                self.mouse_pressed = True\r\n                self.mouse_held    = True\r\n\r\n                if not self.in_game and not self.game_over:\r\n                    if self.text_input.hovered:\r\n                        self.text_input.focus = True\r\n                    elif self.text_input.focus:\r\n                        self.text_input.exit()\r\n\r\n            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:\r\n                self.mouse_released = True\r\n                self.mouse_held     = False\r\n\r\n            elif event.type == pygame.KEYDOWN:\r\n                if event.key == pygame.K_ESCAPE:\r\n                    self.quit()\r\n                elif event.key == pygame.K_r and self.in_game:\r\n                    self._reset()\r\n                    self.in_game = True\r\n\r\n            elif event.type == pygame.QUIT:\r\n                self.quit()\r\n\r\n        self.mouse_pos = pygame.mouse.get_pos()\r\n\r\n        if self.in_game or self.game_over:\r\n            self.window.blit(self.background, (0, 0))\r\n        else:\r\n            self.window.blit(LEVEL_BACKGROUNDS[0], (0, 0))\r\n\r\n        pygame.draw.rect(self.window, (60, 40, 20),\r\n                         (0, self.ground_y, WIDTH, HEIGHT - self.ground_y))\r\n\r\n        if self.in_game and not self.game_over:\r\n\r\n            for c in self.collectibles:\r\n                c.render(self.window, scroll=0)\r\n\r\n            if self.kris.charging and self.kris.power > 0:\r\n                t = 0.0\r\n                for _ in range(self._preview_dots):\r\n                    t += 0.04\r\n                    px, py = move(\r\n                        (self.kris.rect.right, self.kris.rect.centery),\r\n                        self.kris.angle,\r\n                        self.kris.power,\r\n                        t,\r\n                        800\r\n                    )\r\n                    if 0 < px < WIDTH and 0 < py < HEIGHT + 100:\r\n                        pygame.draw.circle(self.window, (255, 80, 80), (int(px), int(py)), 3)\r\n\r\n            self.kris.update(dt, self.mouse_pos,\r\n                             self.mouse_held, self.mouse_released)\r\n            self.kris.render(self.window, scroll=0)\r\n\r\n            self.waste_manager.update(scroll=0, dt=dt)\r\n            self.waste_manager.render(self.window, scroll=0)\r\n\r\n            self._render_hud()\r\n\r\n            if self.menu.death_surf and self.menu.death_rect:\r\n                self.window.blit(self.menu.death_surf, self.menu.death_rect)\r\n\r\n            # Message de changement de niveau\r\n            if self._level_msg_timer > 0:\r\n                self._level_msg_timer -= dt_ms\r\n                self._render_level_message()\r\n\r\n        elif self.game_over:\r\n            for c in self.collectibles:\r\n                c.render(self.window, scroll=0)\r\n            self._render_hud()\r\n            self.menu.update_game_over()\r\n            self.menu.render_game_over(self.window)\r\n\r\n        else:\r\n            self.menu.update_main()\r\n            self.menu.render_main(self.window)\r\n\r\n            if self.message_timer > 0:\r\n                self.message_timer -= dt_ms\r\n                if self.message_timer <= 0:\r\n                    self.message = ''\r\n                else:\r\n                    font = self.text_input.font\r\n                    surf, _ = font.render(self.message, 'red', size=20)\r\n                    blit_center(self.window, surf, (WIDTH / 2, 285))\r\n\r\n            self.text_input.update(self.events)\r\n            self.text_input.render(self.window)\r\n\r\n        pygame.display.flip()\r\n\r\n\r\n    def _render_hud(self):\r\n        score_surf = self.font_score.render(f'Score : {self.score}', True, (255, 220, 40))\r\n        self.window.blit(score_surf, (10, 10))\r\n\r\n        lives_surf = self.font_lives.render(f'Vies : {self.lives}/{MAX_LIVES}', True, (220, 80, 80))\r\n        self.window.blit(lives_surf, (10, 52))\r\n\r\n        name = self._level_names[self.level]\r\n        level_surf = self.font_level.render(f'Niveau {self.level + 1} – {name}', True, (200, 240, 200))\r\n        self.window.blit(level_surf, (WIDTH - level_surf.get_width() - 12, 12))\r\n\r\n        prog_surf = self.font_level.render(\r\n            f'Poubelles : {self.bins_filled}/{BINS_PER_LEVEL}', True, (200, 240, 200)\r\n        )\r\n        self.window.blit(prog_surf, (WIDTH - prog_surf.get_width() - 12, 40))\r\n\r\n    def _render_level_message(self):\r\n        \"\"\"Affiche le nom du nouveau niveau en grand au centre de l'écran.\"\"\"\r\n        surf = self.font_msg.render(self._level_msg, True, (255, 240, 80))\r\n        # Ombre\r\n        shadow = self.font_msg.render(self._level_msg, True, (60, 40, 0))\r\n        cx = WIDTH // 2\r\n        cy = HEIGHT // 2 - 60\r\n        self.window.blit(shadow, shadow.get_rect(center=(cx + 3, cy + 3)))\r\n        self.window.blit(surf,   surf.get_rect(center=(cx, cy)))\r\n\r\n\r\n\r\n    def run(self):\r\n        self.running = True\r\n        while self.running:\r\n            self.update()\r\n        pygame.quit()\r\n\r\n\r\n\r\nclass _FakePlatform:\r\n    \"\"\"Shim minimal pour satisfaire Collectible.__init__ qui attend un platform.\"\"\"\r\n    def __init__(self, cx, bottom):\r\n        self.rect       = pygame.Rect(cx - 40, bottom - 10, 80, 10)\r\n        self.collectible = None\r\n\r\n\r\ndef _make_bin(BinClass, game, cx, ground_y):\r\n    plat = _FakePlatform(cx, ground_y)\r\n    return BinClass(plat, game)\r\n\r\n\r\n\r\nif __name__ == '__main__':\r\n    game = Game()\r\n    game.run()
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/main.py b/main.py
+--- a/main.py	(revision 3812320bcf72356fea33d70edb083dc244a2949b)
++++ b/main.py	(date 1775599745495)
+@@ -3,7 +3,7 @@
+ 
+ from random import random, randint, choice
+ 
+-from scripts.utils import get_angle, smooth, move, clamp, play
++from scripts.utils import get_angle, smooth, move, clamp
+ from scripts.waste import WasteManager, WASTE_TYPES
+ from scripts.bin import BlueBin, YellowBin, BrownBin, GreenBin, BIN_CLASSES
+ from scripts.Kris import Kris
+@@ -14,28 +14,20 @@
+ HEIGHT = 600
+ SIZE   = (WIDTH, HEIGHT)
+ 
+-menu_music   = './assets/menu_music.mp3'
+-ingame_music = './assets/ingame_music.mp3'
+-wrong_sound  = pygame.mixer.Sound('./assets/death_frog.mp3')   # son erreur de tri
+-
+ LEVEL_BACKGROUNDS = [
+     pygame.image.load('assets/decor/Décor Matin.png'),
+     pygame.image.load('assets/decor/Décor Bakery.png'),
+     pygame.image.load('assets/decor/Décor Nuit.png'),
+ ]
+-MAX_LEVEL = len(LEVEL_BACKGROUNDS)  # 3 niveaux
++MAX_LEVEL = len(LEVEL_BACKGROUNDS)
+ 
+-BINS_PER_LEVEL    = 4    # nombre de poubelles présentes simultanément
+-SCORE_PER_CORRECT = 100  # points par bon tri
+-PENALTY_WRONG     = 50   # pénalité par mauvais tri
+-MAX_LIVES         = 3    # vies du joueur
++BINS_PER_LEVEL    = 4
++SCORE_PER_CORRECT = 100
++PENALTY_WRONG     = 50
++MAX_LIVES         = 3
+ 
+ 
+ class Game:
+-    """
+-    Classe principale du jeu Mission Recyclage.
+-    Structure calquée sur La Rainette : même event loop, mêmes états.
+-    """
+ 
+     def __init__(self):
+         self.width  = WIDTH
+@@ -49,37 +41,35 @@
+         self.game_over = False
+ 
+         self.mouse_pos      = (0, 0)
+-        self.mouse_pressed  = False   # True la frame du clic
+-        self.mouse_held     = False   # True tant que maintenu
+-        self.mouse_released = False   # True la frame du relâchement
++        self.mouse_pressed  = False
++        self.mouse_held     = False
++        self.mouse_released = False
+         self.events         = []
+ 
+         self.score = 0
+         self.lives = MAX_LIVES
+ 
+-        self.level           = 0          # index 0-based (0=matin, 1=bakery, 2=nuit)
+-        self.bins_filled     = 0          # poubelles remplies depuis début du niveau
+-        self.background      = LEVEL_BACKGROUNDS[self.level]
++        self.level        = 0
++        self.bins_filled  = 0
++        self.background   = LEVEL_BACKGROUNDS[self.level]
+ 
+-        self._level_msg_timer = 0         # ms restantes d'affichage du message
++        self._level_msg_timer = 0
+         self._level_msg       = ''
+         self._level_names     = ['Matin', 'Bakery', 'Soir']
+ 
+-        self.font_score = pygame.font.Font('assets/ComicNeue-Bold.ttf', 36)
+-        self.font_lives = pygame.font.Font('assets/ComicNeue-Bold.ttf', 28)
+-        self.font_level = pygame.font.Font('assets/ComicNeue-Bold.ttf', 22)
+-        self.font_msg   = pygame.font.Font('assets/ComicNeue-Bold.ttf', 42)
++        self.font_score = pygame.font.SysFont('arial', 36, bold=True)
++        self.font_lives = pygame.font.SysFont('arial', 28, bold=True)
++        self.font_level = pygame.font.SysFont('arial', 22, bold=True)
++        self.font_msg = pygame.font.SysFont('arial', 42, bold=True)
+ 
+-        self.collectibles: list = []   # poubelles actives
++        self.collectibles: list = []
+         self.waste_manager = WasteManager(self)
+ 
+         ground_y = HEIGHT - 80
+         self.kris = Kris(self, bottom=ground_y)
+-
+         self.ground_y = ground_y
+ 
+         self.menu = Menu(self)
+-        play(menu_music)
+ 
+         self.client = Client('mission_recyclage')
+         self.message       = ''
+@@ -95,7 +85,6 @@
+ 
+         self._preview_dots = 12
+ 
+-
+     def set_username(self, username):
+         if self.client.registered:
+             res = self.client.setUsername(username)
+@@ -112,10 +101,8 @@
+             if err:
+                 print(err)
+ 
+-
+     def play(self):
+         self.in_game = True
+-        play(ingame_music)
+         self._spawn_bins()
+ 
+     def retry(self):
+@@ -123,7 +110,6 @@
+         self.in_game = True
+ 
+     def to_menu(self):
+-        play(menu_music)
+         self._reset()
+         self.in_game = False
+ 
+@@ -147,41 +133,31 @@
+         self.kris = Kris(self, bottom=self.ground_y)
+         self._spawn_bins()
+ 
+-
+     def _spawn_bins(self):
+-        """Place BINS_PER_LEVEL poubelles réparties sur la droite de l'écran."""
+         self.collectibles.clear()
+         colors  = list(BIN_CLASSES.keys())
+-        chosen  = colors[:]
+         spacing = (WIDTH - WIDTH * 0.35) / BINS_PER_LEVEL
+         x_start = WIDTH * 0.38
+-
+-        for i, color in enumerate(chosen):
++        for i, color in enumerate(colors):
+             BinClass = BIN_CLASSES[color]
+-            bin_obj = _make_bin(BinClass, self, x_start + i * spacing, self.ground_y)
++            bin_obj  = _make_bin(BinClass, self, x_start + i * spacing, self.ground_y)
+             self.collectibles.append(bin_obj)
+ 
+     def _advance_level(self):
+-        """Passe au niveau suivant (décor suivant) ou déclenche la fin de jeu."""
+         next_level = self.level + 1
+         if next_level >= MAX_LEVEL:
+-            # Tous les niveaux complétés → victoire (on traite comme un game over positif)
+             self._trigger_game_over()
+             return
+-
+         self.level       = next_level
+         self.bins_filled = 0
+         self.background  = LEVEL_BACKGROUNDS[self.level]
+-
+         name = self._level_names[self.level]
+         self._level_msg       = f'Niveau {self.level + 1} – {name} !'
+-        self._level_msg_timer = 2500   # ms d'affichage
+-
++        self._level_msg_timer = 2500
+         self.waste_manager.clear()
+         self._spawn_bins()
+ 
+     def on_bin_filled(self):
+-        """Appelé par Collectible.effect() (via bin.py) quand une poubelle est pleine."""
+         self.bins_filled += 1
+         if self.bins_filled >= BINS_PER_LEVEL:
+             self._advance_level()
+@@ -190,7 +166,6 @@
+         self.score += SCORE_PER_CORRECT
+ 
+     def on_wrong_bin(self, waste, bin_obj):
+-        wrong_sound.play()
+         self.lives -= 1
+         self.score  = max(0, self.score - PENALTY_WRONG)
+         self.menu.new_message()
+@@ -204,7 +179,6 @@
+         if self.client.connected and self.client.registered:
+             self.client.thread(self._score_thread, args=(self.score,))
+ 
+-
+     def update(self):
+         dt_ms = self.clock.tick(60)
+         dt    = dt_ms / 1000.0
+@@ -219,7 +193,6 @@
+             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                 self.mouse_pressed = True
+                 self.mouse_held    = True
+-
+                 if not self.in_game and not self.game_over:
+                     if self.text_input.hovered:
+                         self.text_input.focus = True
+@@ -242,6 +215,7 @@
+ 
+         self.mouse_pos = pygame.mouse.get_pos()
+ 
++        # Fond
+         if self.in_game or self.game_over:
+             self.window.blit(self.background, (0, 0))
+         else:
+@@ -251,7 +225,6 @@
+                          (0, self.ground_y, WIDTH, HEIGHT - self.ground_y))
+ 
+         if self.in_game and not self.game_over:
+-
+             for c in self.collectibles:
+                 c.render(self.window, scroll=0)
+ 
+@@ -261,16 +234,12 @@
+                     t += 0.04
+                     px, py = move(
+                         (self.kris.rect.right, self.kris.rect.centery),
+-                        self.kris.angle,
+-                        self.kris.power,
+-                        t,
+-                        800
++                        self.kris.angle, self.kris.power, t, 800
+                     )
+                     if 0 < px < WIDTH and 0 < py < HEIGHT + 100:
+                         pygame.draw.circle(self.window, (255, 80, 80), (int(px), int(py)), 3)
+ 
+-            self.kris.update(dt, self.mouse_pos,
+-                             self.mouse_held, self.mouse_released)
++            self.kris.update(dt, self.mouse_pos, self.mouse_held, self.mouse_released)
+             self.kris.render(self.window, scroll=0)
+ 
+             self.waste_manager.update(scroll=0, dt=dt)
+@@ -281,7 +250,6 @@
+             if self.menu.death_surf and self.menu.death_rect:
+                 self.window.blit(self.menu.death_surf, self.menu.death_rect)
+ 
+-            # Message de changement de niveau
+             if self._level_msg_timer > 0:
+                 self._level_msg_timer -= dt_ms
+                 self._render_level_message()
+@@ -311,7 +279,6 @@
+ 
+         pygame.display.flip()
+ 
+-
+     def _render_hud(self):
+         score_surf = self.font_score.render(f'Score : {self.score}', True, (255, 220, 40))
+         self.window.blit(score_surf, (10, 10))
+@@ -329,17 +296,12 @@
+         self.window.blit(prog_surf, (WIDTH - prog_surf.get_width() - 12, 40))
+ 
+     def _render_level_message(self):
+-        """Affiche le nom du nouveau niveau en grand au centre de l'écran."""
+-        surf = self.font_msg.render(self._level_msg, True, (255, 240, 80))
+-        # Ombre
++        surf   = self.font_msg.render(self._level_msg, True, (255, 240, 80))
+         shadow = self.font_msg.render(self._level_msg, True, (60, 40, 0))
+-        cx = WIDTH // 2
+-        cy = HEIGHT // 2 - 60
++        cx, cy = WIDTH // 2, HEIGHT // 2 - 60
+         self.window.blit(shadow, shadow.get_rect(center=(cx + 3, cy + 3)))
+         self.window.blit(surf,   surf.get_rect(center=(cx, cy)))
+ 
+-
+-
+     def run(self):
+         self.running = True
+         while self.running:
+@@ -347,11 +309,9 @@
+         pygame.quit()
+ 
+ 
+-
+ class _FakePlatform:
+-    """Shim minimal pour satisfaire Collectible.__init__ qui attend un platform."""
+     def __init__(self, cx, bottom):
+-        self.rect       = pygame.Rect(cx - 40, bottom - 10, 80, 10)
++        self.rect        = pygame.Rect(cx - 40, bottom - 10, 80, 10)
+         self.collectible = None
+ 
+ 
+@@ -360,7 +320,6 @@
+     return BinClass(plat, game)
+ 
+ 
+-
+ if __name__ == '__main__':
+     game = Game()
+     game.run()
+\ No newline at end of file
+Index: scripts/bin.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>import pygame\r\nfrom scripts.utils import load_image\r\n\r\nimport os\r\n\r\n# Plus besoin de BASE_PATH ou de get_path compliqué\r\nblue_bin_image   = load_image('poubelles/BlueBin.png',   scale=0.5)\r\nyellow_bin_image = load_image('poubelles/YellowBin.png', scale=0.5)\r\nbrown_bin_image  = load_image('poubelles/BrownBin.png',  scale=0.5)\r\ngreen_bin_image  = load_image('poubelles/GreenBin.png',  scale=0.5)\r\nMAX_WASTE = 5\r\nGAUGE_WIDTH = 50\r\nGAUGE_HEIGHT = 8\r\nGAUGE_OFFSET_Y = 6\r\nGAUGE_BG_COLOR = (60, 60, 60)\r\nGAUGE_BORDER = (200, 200, 200)\r\n\r\nGAUGE_COLORS = {\r\n    'blue': (70, 130, 210),\r\n    'yellow': (230, 200, 40),\r\n    'brown': (140, 90, 40),\r\n    'green': (50, 170, 60),\r\n}\r\n\r\n\r\nclass Collectible:\r\n    bin_color = None\r\n    gauge_color = (200, 200, 200)\r\n\r\n    def __init__(self, platform, game, image):\r\n        self.game = game\r\n        self.image = image\r\n        self.size = self.image.get_size()\r\n        # On centre la poubelle sur la plateforme\r\n        self.rect = pygame.Rect(\r\n            platform.rect.centerx - self.size[0] / 2,\r\n            platform.rect.top - self.size[1],\r\n            *self.size\r\n        )\r\n        self.platform = platform\r\n        self.platform.collectible = self\r\n        self.waste_count = 0\r\n\r\n    def effect(self):\r\n        self.waste_count += 1\r\n        if self.waste_count >= MAX_WASTE:\r\n            self.counter_effect(self.game)\r\n            self.remove()\r\n\r\n    @staticmethod\r\n    def counter_effect(game):\r\n        if hasattr(game, 'on_bin_filled'):\r\n            game.on_bin_filled()\r\n\r\n    def remove(self):\r\n        self.platform.collectible = None\r\n        if self in self.game.collectibles:\r\n            self.game.collectibles.remove(self)\r\n\r\n    def render(self, surf, scroll):\r\n        # On applique le scroll (souvent scroll est une liste [x, y])\r\n        draw_x = self.rect.x - scroll[0]\r\n        draw_y = self.rect.y - scroll[1]\r\n\r\n        surf.blit(self.image, (draw_x, draw_y))\r\n\r\n        # Positionnement de la jauge\r\n        gauge_x = draw_x + (self.size[0] - GAUGE_WIDTH) // 2\r\n        gauge_y = draw_y + self.size[1] + GAUGE_OFFSET_Y\r\n\r\n        # Dessin du fond de la jauge\r\n        pygame.draw.rect(surf, GAUGE_BG_COLOR, (gauge_x, gauge_y, GAUGE_WIDTH, GAUGE_HEIGHT))\r\n\r\n        # Dessin du remplissage\r\n        fill_w = int(GAUGE_WIDTH * (self.waste_count / MAX_WASTE))\r\n        if fill_w > 0:\r\n            pygame.draw.rect(surf, self.gauge_color, (gauge_x, gauge_y, fill_w, GAUGE_HEIGHT))\r\n\r\n        # Bordure de la jauge\r\n        pygame.draw.rect(surf, GAUGE_BORDER, (gauge_x, gauge_y, GAUGE_WIDTH, GAUGE_HEIGHT), 1)\r\n\r\n\r\n# --- Sous-classes simplifiées ---\r\n\r\nclass BlueBin(Collectible):\r\n    bin_color = 'blue'\r\n    gauge_color = GAUGE_COLORS['blue']\r\n\r\n    def __init__(self, platform, game):\r\n        super().__init__(platform, game, blue_bin_image)\r\n\r\n    def effect(self):\r\n        self.game.score_blue = getattr(self.game, 'score_blue', 0) + 1\r\n        super().effect()\r\n\r\n\r\nclass YellowBin(Collectible):\r\n    bin_color = 'yellow'\r\n    gauge_color = GAUGE_COLORS['yellow']\r\n\r\n    def __init__(self, platform, game):\r\n        super().__init__(platform, game, yellow_bin_image)\r\n\r\n    def effect(self):\r\n        self.game.score_yellow = getattr(self.game, 'score_yellow', 0) + 1\r\n        super().effect()\r\n\r\n\r\nclass BrownBin(Collectible):\r\n    bin_color = 'brown'\r\n    gauge_color = GAUGE_COLORS['brown']\r\n\r\n    def __init__(self, platform, game):\r\n        super().__init__(platform, game, brown_bin_image)\r\n\r\n    def effect(self):\r\n        self.game.score_brown = getattr(self.game, 'score_brown', 0) + 1\r\n        super().effect()\r\n\r\n\r\nclass GreenBin(Collectible):\r\n    bin_color = 'green'\r\n    gauge_color = GAUGE_COLORS['green']\r\n\r\n    def __init__(self, platform, game):\r\n        super().__init__(platform, game, green_bin_image)\r\n\r\n    def effect(self):\r\n        self.game.score_green = getattr(self.game, 'score_green', 0) + 1\r\n        super().effect()\r\n\r\n\r\nBIN_CLASSES = {\r\n    'blue': BlueBin,\r\n    'yellow': YellowBin,\r\n    'brown': BrownBin,\r\n    'green': GreenBin,\r\n}
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/scripts/bin.py b/scripts/bin.py
+--- a/scripts/bin.py	(revision 3812320bcf72356fea33d70edb083dc244a2949b)
++++ b/scripts/bin.py	(date 1775599624917)
+@@ -1,45 +1,43 @@
+ import pygame
+ from scripts.utils import load_image
+ 
+-import os
+ 
+-# Plus besoin de BASE_PATH ou de get_path compliqué
+-blue_bin_image   = load_image('poubelles/BlueBin.png',   scale=0.5)
+-yellow_bin_image = load_image('poubelles/YellowBin.png', scale=0.5)
+-brown_bin_image  = load_image('poubelles/BrownBin.png',  scale=0.5)
+-green_bin_image  = load_image('poubelles/GreenBin.png',  scale=0.5)
+-MAX_WASTE = 5
+-GAUGE_WIDTH = 50
+-GAUGE_HEIGHT = 8
++blue_bin_image   = load_image('assets/poubelles/BlueBin.png',   scale=0.5)
++yellow_bin_image = load_image('assets/poubelles/YellowBin.png', scale=0.5)
++brown_bin_image  = load_image('assets/poubelles/BrownBin.png',  scale=0.5)
++green_bin_image  = load_image('assets/poubelles/GreenBin.png',  scale=0.5)
++
++MAX_WASTE      = 5
++GAUGE_WIDTH    = 50
++GAUGE_HEIGHT   = 8
+ GAUGE_OFFSET_Y = 6
+ GAUGE_BG_COLOR = (60, 60, 60)
+-GAUGE_BORDER = (200, 200, 200)
++GAUGE_BORDER   = (200, 200, 200)
+ 
+ GAUGE_COLORS = {
+-    'blue': (70, 130, 210),
+-    'yellow': (230, 200, 40),
+-    'brown': (140, 90, 40),
+-    'green': (50, 170, 60),
++    'blue':   (70,  130, 210),
++    'yellow': (230, 200,  40),
++    'brown':  (140,  90,  40),
++    'green':  ( 50, 170,  60),
+ }
+ 
+ 
+ class Collectible:
+-    bin_color = None
++    bin_color   = None
+     gauge_color = (200, 200, 200)
+ 
+     def __init__(self, platform, game, image):
+-        self.game = game
++        self.game  = game
+         self.image = image
+-        self.size = self.image.get_size()
+-        # On centre la poubelle sur la plateforme
+-        self.rect = pygame.Rect(
++        self.size  = self.image.get_size()
++        self.rect  = pygame.Rect(
+             platform.rect.centerx - self.size[0] / 2,
+             platform.rect.top - self.size[1],
+             *self.size
+         )
+-        self.platform = platform
++        self.platform             = platform
+         self.platform.collectible = self
+-        self.waste_count = 0
++        self.waste_count          = 0
+ 
+     def effect(self):
+         self.waste_count += 1
+@@ -58,32 +56,27 @@
+             self.game.collectibles.remove(self)
+ 
+     def render(self, surf, scroll):
+-        # On applique le scroll (souvent scroll est une liste [x, y])
+-        draw_x = self.rect.x - scroll[0]
+-        draw_y = self.rect.y - scroll[1]
++        # scroll est un entier (pas une liste)
++        draw_x = self.rect.x - scroll
++        draw_y = self.rect.y
+ 
+         surf.blit(self.image, (draw_x, draw_y))
+ 
+-        # Positionnement de la jauge
+         gauge_x = draw_x + (self.size[0] - GAUGE_WIDTH) // 2
+         gauge_y = draw_y + self.size[1] + GAUGE_OFFSET_Y
+ 
+-        # Dessin du fond de la jauge
+-        pygame.draw.rect(surf, GAUGE_BG_COLOR, (gauge_x, gauge_y, GAUGE_WIDTH, GAUGE_HEIGHT))
+-
+-        # Dessin du remplissage
+-        fill_w = int(GAUGE_WIDTH * (self.waste_count / MAX_WASTE))
++        pygame.draw.rect(surf, GAUGE_BG_COLOR,
++                         (gauge_x, gauge_y, GAUGE_WIDTH, GAUGE_HEIGHT))
++        fill_w = int(GAUGE_WIDTH * self.waste_count / MAX_WASTE)
+         if fill_w > 0:
+-            pygame.draw.rect(surf, self.gauge_color, (gauge_x, gauge_y, fill_w, GAUGE_HEIGHT))
+-
+-        # Bordure de la jauge
+-        pygame.draw.rect(surf, GAUGE_BORDER, (gauge_x, gauge_y, GAUGE_WIDTH, GAUGE_HEIGHT), 1)
++            pygame.draw.rect(surf, self.gauge_color,
++                             (gauge_x, gauge_y, fill_w, GAUGE_HEIGHT))
++        pygame.draw.rect(surf, GAUGE_BORDER,
++                         (gauge_x, gauge_y, GAUGE_WIDTH, GAUGE_HEIGHT), 1)
+ 
+-
+-# --- Sous-classes simplifiées ---
+ 
+ class BlueBin(Collectible):
+-    bin_color = 'blue'
++    bin_color   = 'blue'
+     gauge_color = GAUGE_COLORS['blue']
+ 
+     def __init__(self, platform, game):
+@@ -93,9 +86,14 @@
+         self.game.score_blue = getattr(self.game, 'score_blue', 0) + 1
+         super().effect()
+ 
++    @staticmethod
++    def counter_effect(game):
++        if hasattr(game, 'on_bin_filled'):
++            game.on_bin_filled()
++
+ 
+ class YellowBin(Collectible):
+-    bin_color = 'yellow'
++    bin_color   = 'yellow'
+     gauge_color = GAUGE_COLORS['yellow']
+ 
+     def __init__(self, platform, game):
+@@ -105,9 +103,14 @@
+         self.game.score_yellow = getattr(self.game, 'score_yellow', 0) + 1
+         super().effect()
+ 
++    @staticmethod
++    def counter_effect(game):
++        if hasattr(game, 'on_bin_filled'):
++            game.on_bin_filled()
++
+ 
+ class BrownBin(Collectible):
+-    bin_color = 'brown'
++    bin_color   = 'brown'
+     gauge_color = GAUGE_COLORS['brown']
+ 
+     def __init__(self, platform, game):
+@@ -117,9 +120,14 @@
+         self.game.score_brown = getattr(self.game, 'score_brown', 0) + 1
+         super().effect()
+ 
++    @staticmethod
++    def counter_effect(game):
++        if hasattr(game, 'on_bin_filled'):
++            game.on_bin_filled()
++
+ 
+ class GreenBin(Collectible):
+-    bin_color = 'green'
++    bin_color   = 'green'
+     gauge_color = GAUGE_COLORS['green']
+ 
+     def __init__(self, platform, game):
+@@ -129,10 +137,15 @@
+         self.game.score_green = getattr(self.game, 'score_green', 0) + 1
+         super().effect()
+ 
++    @staticmethod
++    def counter_effect(game):
++        if hasattr(game, 'on_bin_filled'):
++            game.on_bin_filled()
++
+ 
+ BIN_CLASSES = {
+-    'blue': BlueBin,
++    'blue':   BlueBin,
+     'yellow': YellowBin,
+-    'brown': BrownBin,
+-    'green': GreenBin,
++    'brown':  BrownBin,
++    'green':  GreenBin,
+ }
+\ No newline at end of file
+Index: scripts/menu.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>import pygame\r\nimport random\r\nimport math\r\n\r\nfont_path = 'assets/ComicNeue-Bold.ttf'\r\n\r\n\r\nCOLOR_BG_TOP      = (20,  90,  40)   # vert forêt profond\r\nCOLOR_BG_BOT      = (10,  50,  20)   # vert très sombre\r\nCOLOR_PANEL       = (255, 255, 255, 30)  # panneau semi-transparent\r\n\r\nBTN_DEFAULT       = (56,  168,  77)\r\nBTN_HOVER         = (34,  139,  54)\r\nBTN_CLICK         = (20,   90,  35)\r\nBTN_DANGER        = (192,  57,  43)\r\nBTN_DANGER_HOVER  = (150,  30,  20)\r\nBTN_TEXT          = (255, 255, 255)\r\n\r\nTITLE_COLOR       = (255, 220,  40)   # jaune recyclage\r\nTITLE_SHADOW      = ( 80,  40,   0)\r\nSUBTITLE_COLOR    = (180, 255, 160)\r\nGAMEOVER_COLOR    = (220,  60,  60)\r\n\r\nLEAF_COLOR        = (80, 200, 100, 160)\r\n\r\n\r\ndef _leaf_points(cx, cy, size, angle_deg):\r\n    \"\"\"Calcule les points d'une feuille stylisée (losange allongé).\"\"\"\r\n    a = math.radians(angle_deg)\r\n    pts = []\r\n    for da, r in [(0, size), (90, size * 0.35), (180, size), (270, size * 0.35)]:\r\n        aa = a + math.radians(da)\r\n        pts.append((cx + r * math.cos(aa), cy + r * math.sin(aa)))\r\n    return pts\r\n\r\n\r\nclass Button:\r\n    \"\"\"Bouton arrondi avec ombre, hover et click.\"\"\"\r\n\r\n    def __init__(self, centerx, y, text, danger=False):\r\n        self.text      = text\r\n        self.danger    = danger\r\n        self.is_hovered = False\r\n        self.is_clicked = False\r\n\r\n        self.col_base  = BTN_DANGER      if danger else BTN_DEFAULT\r\n        self.col_hover = BTN_DANGER_HOVER if danger else BTN_HOVER\r\n        self.col_click = (100, 10, 10)   if danger else BTN_CLICK\r\n        self.color     = self.col_base\r\n\r\n        self.font           = pygame.font.Font(font_path, 32)\r\n        self.rendered_text  = self.font.render(self.text, True, BTN_TEXT)\r\n\r\n        w, h = 200, 46\r\n        self.rect      = pygame.Rect(centerx - w // 2, y, w, h)\r\n        self.text_rect = self.rendered_text.get_rect(center=self.rect.center)\r\n\r\n        self._shadow_rect = self.rect.move(3, 4)\r\n\r\n    def update(self, mouse_pos, click):\r\n        self.is_hovered = self.rect.collidepoint(mouse_pos)\r\n        self.color = self.col_base\r\n        if self.is_hovered:\r\n            self.color = self.col_hover\r\n        self.is_clicked = self.is_hovered and click\r\n        if self.is_clicked:\r\n            self.color = self.col_click\r\n        return self.is_clicked\r\n\r\n    def render(self, surface):\r\n        pygame.draw.rect(surface, (0, 0, 0, 80), self._shadow_rect, border_radius=14)\r\n        pygame.draw.rect(surface, self.color, self.rect, border_radius=14)\r\n        highlight = pygame.Rect(self.rect.x + 4, self.rect.y + 3, self.rect.width - 8, 4)\r\n        pygame.draw.rect(surface, (*[min(c + 60, 255) for c in self.color[:3]],), highlight, border_radius=4)\r\n        surface.blit(self.rendered_text, self.text_rect)\r\n\r\n\r\nclass Menu:\r\n    \"\"\"Menu principal et écran Game Over du jeu Mission Recyclage.\"\"\"\r\n\r\n    def __init__(self, game):\r\n        self.game  = game\r\n        self._tick = 0   # compteur pour animations\r\n\r\n        title_font = pygame.font.Font(font_path, 82)\r\n        self.title_surf  = title_font.render('Mission', True, TITLE_COLOR)\r\n        self.title_rect  = self.title_surf.get_rect(center=(game.width / 2, 85))\r\n\r\n        title2_font = pygame.font.Font(font_path, 68)\r\n        self.title2_surf = title2_font.render('♻ Recyclage !', True, TITLE_COLOR)\r\n        self.title2_rect = self.title2_surf.get_rect(center=(game.width / 2, 160))\r\n\r\n        self.title_shadow_surf  = title_font.render('Mission',        True, TITLE_SHADOW)\r\n        self.title2_shadow_surf = title2_font.render('♻ Recyclage !', True, TITLE_SHADOW)\r\n\r\n        sub_font = pygame.font.Font(font_path, 22)\r\n        self.sub_surf = sub_font.render('Trie les déchets, sauve la planète !', True, SUBTITLE_COLOR)\r\n        self.sub_rect = self.sub_surf.get_rect(center=(game.width / 2, 215))\r\n\r\n        go_font = pygame.font.Font(font_path, 76)\r\n        self.game_over_surf = go_font.render('Game Over', True, GAMEOVER_COLOR)\r\n        self.game_over_rect = self.game_over_surf.get_rect(center=(game.width / 2, 95))\r\n\r\n        cx = game.width // 2\r\n        cy = game.height // 2\r\n        self.play_button  = Button(cx, cy - 15,  'Jouer')\r\n        self.retry_button = Button(cx, cy - 60,  'Rejouer')\r\n        self.menu_button  = Button(cx, cy,        'Menu')\r\n        self.quit_button  = Button(cx, cy + 60,   'Quitter', danger=True)\r\n\r\n        self.death_font = pygame.font.Font(font_path, 28)\r\n        self.death_messages = [\r\n            \"Plastique → poubelle jaune !\",\r\n            \"Le verre va dans la verte !\",\r\n            \"Papier et carton : poubelle bleue !\",\r\n            \"Les restes organiques ? La marron !\",\r\n            \"Vise bien avant de lancer !\",\r\n            \"Attention au tri sélectif !\",\r\n        ]\r\n        self.death_surf = None\r\n        self.death_rect = None\r\n\r\n        self._leaves = [\r\n            (50,  60,  28, 30),\r\n            (game.width - 60, 80,  22, 130),\r\n            (30,  game.height - 80, 20, 50),\r\n            (game.width - 45, game.height - 70, 26, 160),\r\n            (game.width // 2 - 220, 140, 16, 10),\r\n            (game.width // 2 + 230, 150, 18, 170),\r\n        ]\r\n\r\n        self._bg = pygame.Surface((game.width, game.height))\r\n        for y in range(game.height):\r\n            t = y / game.height\r\n            r = int(COLOR_BG_TOP[0] * (1 - t) + COLOR_BG_BOT[0] * t)\r\n            g = int(COLOR_BG_TOP[1] * (1 - t) + COLOR_BG_BOT[1] * t)\r\n            b = int(COLOR_BG_TOP[2] * (1 - t) + COLOR_BG_BOT[2] * t)\r\n            pygame.draw.line(self._bg, (r, g, b), (0, y), (game.width, y))\r\n\r\n    def new_message(self):\r\n        msg  = random.choice(self.death_messages)\r\n        surf = self.death_font.render(msg, True, (255, 240, 180))\r\n        self.death_surf = surf\r\n        self.death_rect = surf.get_rect(center=(self.game.width / 2, self.game.height - 80))\r\n\r\n    def _draw_bg(self, surf):\r\n        surf.blit(self._bg, (0, 0))\r\n        self._tick += 1\r\n        for i, (lx, ly, size, angle) in enumerate(self._leaves):\r\n            wobble = math.sin(self._tick * 0.03 + i) * 5\r\n            pts = _leaf_points(lx, ly + wobble, size, angle)\r\n            leaf_surf = pygame.Surface((surf.get_width(), surf.get_height()), pygame.SRCALPHA)\r\n            pygame.draw.polygon(leaf_surf, (80, 200, 100, 140), pts)\r\n            surf.blit(leaf_surf, (0, 0))\r\n\r\n    def _draw_title(self, surf):\r\n        surf.blit(self.title_shadow_surf,  self.title_rect.move(3, 4))\r\n        surf.blit(self.title2_shadow_surf, self.title2_rect.move(3, 4))\r\n        bob = int(math.sin(self._tick * 0.05) * 3)\r\n        surf.blit(self.title_surf,  self.title_rect.move(0, bob))\r\n        surf.blit(self.title2_surf, self.title2_rect.move(0, bob))\r\n        surf.blit(self.sub_surf,    self.sub_rect)\r\n\r\n    def _draw_panel(self, surf, rect, alpha=35):\r\n        \"\"\"Panneau blanc semi-transparent derrière les boutons.\"\"\"\r\n        panel = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)\r\n        panel.fill((255, 255, 255, alpha))\r\n        pygame.draw.rect(panel, (255, 255, 255, 60),\r\n                         panel.get_rect(), 2, border_radius=18)\r\n        surf.blit(panel, rect.topleft)\r\n\r\n    def update_main(self):\r\n        if self.play_button.update(self.game.mouse_pos, self.game.mouse_pressed):\r\n            self.game.play()\r\n        if self.quit_button.update(self.game.mouse_pos, self.game.mouse_pressed):\r\n            self.game.quit()\r\n\r\n    def update_game_over(self):\r\n        if self.retry_button.update(self.game.mouse_pos, self.game.mouse_pressed):\r\n            self.game.retry()\r\n            return\r\n        if self.menu_button.update(self.game.mouse_pos, self.game.mouse_pressed):\r\n            self.game.to_menu()\r\n        if self.quit_button.update(self.game.mouse_pos, self.game.mouse_pressed):\r\n            self.game.quit()\r\n\r\n    def render_main(self, surf):\r\n        self._draw_bg(surf)\r\n        self._draw_title(surf)\r\n\r\n        panel_rect = pygame.Rect(self.game.width // 2 - 120,\r\n                                 self.play_button.rect.y - 16,\r\n                                 240, 90)\r\n        self._draw_panel(surf, panel_rect)\r\n\r\n        self.play_button.render(surf)\r\n        self.quit_button.render(surf)\r\n\r\n    def render_game_over(self, surf):\r\n        self._draw_bg(surf)\r\n\r\n        bob = int(math.sin(self._tick * 0.05) * 3)\r\n        surf.blit(self.game_over_surf, self.game_over_rect.move(0, bob))\r\n\r\n        if self.death_surf:\r\n            pad = 12\r\n            box = self.death_rect.inflate(pad * 2, pad * 2)\r\n            self._draw_panel(surf, box, alpha=60)\r\n            surf.blit(self.death_surf, self.death_rect)\r\n\r\n        top_btn = min(self.retry_button.rect.y, self.menu_button.rect.y, self.quit_button.rect.y)\r\n        bot_btn = max(self.retry_button.rect.bottom, self.menu_button.rect.bottom, self.quit_button.rect.bottom)\r\n        panel_rect = pygame.Rect(self.game.width // 2 - 120, top_btn - 12,\r\n                                 240, bot_btn - top_btn + 24)\r\n        self._draw_panel(surf, panel_rect)\r\n\r\n        self.retry_button.render(surf)\r\n        self.menu_button.render(surf)\r\n        self.quit_button.render(surf)
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/scripts/menu.py b/scripts/menu.py
+--- a/scripts/menu.py	(revision 3812320bcf72356fea33d70edb083dc244a2949b)
++++ b/scripts/menu.py	(date 1775599936226)
+@@ -2,7 +2,8 @@
+ import random
+ import math
+ 
+-font_path = 'assets/ComicNeue-Bold.ttf'
++def _font(size):
++    return pygame.font.SysFont('arial', size, bold=True)
+ 
+ 
+ COLOR_BG_TOP      = (20,  90,  40)   # vert forêt profond
+@@ -48,7 +49,7 @@
+         self.col_click = (100, 10, 10)   if danger else BTN_CLICK
+         self.color     = self.col_base
+ 
+-        self.font           = pygame.font.Font(font_path, 32)
++        self.font = _font(32)
+         self.rendered_text  = self.font.render(self.text, True, BTN_TEXT)
+ 
+         w, h = 200, 46
+Index: scripts/Kris.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>import math\r\nimport pygame\r\nimport random\r\n\r\nfrom scripts.utils import load_image, get_angle\r\nfrom scripts.waste import WasteManager, WASTE_TYPES, _waste_images\r\n\r\nscale = 0.15\r\n\r\n# ─── Assets ───────────────────────────────────────────────────────────────────\r\nimages = {\r\n    'idle':     load_image('personnage/Kris.png',   scale=scale),\r\n    'throwing': load_image('personnage/Kris 2.png', scale=scale),\r\n}\r\n\r\nlaunch_sound = pygame.mixer.Sound('./assets/launch_jump.mp3')\r\n\r\n# ─── Constantes de lancer ─────────────────────────────────────────────────────\r\nMIN_POWER   = 100\r\nMAX_POWER   = 700\r\nPOWER_SPEED = 300\r\nGRAVITY     = 800\r\n\r\n\r\nclass Kris:\r\n    \"\"\"\r\n    Personnage joueur positionné à gauche de l'écran.\r\n\r\n    Contrôles :\r\n      - Clic gauche enfoncé  → charge la puissance (jauge visible)\r\n      - Relâcher le clic     → lance le déchet vers la position de la souris\r\n      - L'angle est calculé automatiquement depuis Kris vers la souris.\r\n    \"\"\"\r\n\r\n    CHARGE_COLOR_LOW  = (80,  200,  80)\r\n    CHARGE_COLOR_HIGH = (220,  60,  60)\r\n    CHARGE_BAR_W      = 60\r\n    CHARGE_BAR_H      = 8\r\n\r\n    def __init__(self, game, bottom: float):\r\n        self.game  = game\r\n        self.waste_manager: WasteManager = game.waste_manager\r\n\r\n        self.images = images\r\n        self.state  = 'idle'\r\n        self.image  = self.images[self.state]\r\n\r\n        size = self.image.get_size()\r\n        center_x = game.width * 0.10\r\n        self.rect = pygame.FRect(\r\n            center_x - size[0] / 2,\r\n            bottom - size[1],\r\n            *size\r\n        )\r\n\r\n        self.current_waste = self._pick_waste()\r\n\r\n        self.charging = False\r\n        self.power    = 0.0\r\n        self.angle    = 0.0\r\n\r\n        self._bob_t  = 0.0\r\n        self._base_y = self.rect.y\r\n\r\n    # ── Interne ───────────────────────────────────────────────────────────────\r\n\r\n    def _pick_waste(self) -> str:\r\n        return random.choice(list(WASTE_TYPES.keys()))\r\n\r\n    def _set_state(self, state: str):\r\n        self.state = state\r\n        self.image = self.images[state]\r\n\r\n    def _lerp_color(self, t: float):\r\n        r = int(self.CHARGE_COLOR_LOW[0] + (self.CHARGE_COLOR_HIGH[0] - self.CHARGE_COLOR_LOW[0]) * t)\r\n        g = int(self.CHARGE_COLOR_LOW[1] + (self.CHARGE_COLOR_HIGH[1] - self.CHARGE_COLOR_LOW[1]) * t)\r\n        b = int(self.CHARGE_COLOR_LOW[2] + (self.CHARGE_COLOR_HIGH[2] - self.CHARGE_COLOR_LOW[2]) * t)\r\n        return (r, g, b)\r\n\r\n    # ── API publique ──────────────────────────────────────────────────────────\r\n\r\n    def update(self, dt: float, mouse_pos: tuple, mouse_down: bool, mouse_released: bool):\r\n        self.angle = get_angle(self.rect.center, mouse_pos)\r\n\r\n        # ── Charge ────────────────────────────────────────────────────────────\r\n        if mouse_down and not mouse_released:\r\n            if not self.charging:\r\n                self.charging = True\r\n                self.power    = MIN_POWER\r\n                self._set_state('throwing')\r\n            else:\r\n                self.power = min(self.power + POWER_SPEED * dt, MAX_POWER)\r\n\r\n        # ── Lancer ────────────────────────────────────────────────────────────\r\n        if mouse_released and self.charging:\r\n            self._launch()\r\n\r\n        # ── Idle bob ──────────────────────────────────────────────────────────\r\n        if not self.charging:\r\n            self._set_state('idle')\r\n            self._bob_t += dt\r\n            self.rect.y = self._base_y + math.sin(self._bob_t * 3) * 2\r\n\r\n    def _launch(self):\r\n        launch_sound.play()\r\n\r\n        origin_x = self.rect.right\r\n        origin_y = self.rect.centery\r\n\r\n        self.waste_manager.launch(\r\n            self.current_waste,\r\n            origin_x, origin_y,\r\n            angle=self.angle,\r\n            power=self.power,\r\n            gravity=GRAVITY,\r\n        )\r\n\r\n        self.charging      = False\r\n        self.power         = 0.0\r\n        self.current_waste = self._pick_waste()\r\n        self._set_state('idle')\r\n\r\n    # ── Rendu ─────────────────────────────────────────────────────────────────\r\n\r\n    def render(self, surf: pygame.Surface, scroll: int = 0):\r\n        surf.blit(self.image, (self.rect.x - scroll, self.rect.y))\r\n        self._render_next_waste(surf, scroll)\r\n\r\n        if self.charging:\r\n            self._render_charge_bar(surf, scroll)\r\n\r\n    def _render_next_waste(self, surf: pygame.Surface, scroll: int):\r\n        icon = _waste_images.get(self.current_waste)\r\n        if icon:\r\n            ix = int(self.rect.centerx - icon.get_width() / 2) - scroll\r\n            iy = int(self.rect.top - icon.get_height() - 6)\r\n            surf.blit(icon, (ix, iy))\r\n\r\n    def _render_charge_bar(self, surf: pygame.Surface, scroll: int):\r\n        t = (self.power - MIN_POWER) / (MAX_POWER - MIN_POWER)\r\n        t = max(0.0, min(1.0, t))\r\n\r\n        bar_x = int(self.rect.centerx - self.CHARGE_BAR_W / 2) - scroll\r\n        bar_y = int(self.rect.top - self.CHARGE_BAR_H - 28)\r\n\r\n        pygame.draw.rect(surf, (50, 50, 50),\r\n                         (bar_x, bar_y, self.CHARGE_BAR_W, self.CHARGE_BAR_H))\r\n        fill_w = int(self.CHARGE_BAR_W * t)\r\n        if fill_w > 0:\r\n            pygame.draw.rect(surf, self._lerp_color(t),\r\n                             (bar_x, bar_y, fill_w, self.CHARGE_BAR_H))\r\n        pygame.draw.rect(surf, (200, 200, 200),\r\n                         (bar_x, bar_y, self.CHARGE_BAR_W, self.CHARGE_BAR_H), 1)
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/scripts/Kris.py b/scripts/Kris.py
+--- a/scripts/Kris.py	(revision 3812320bcf72356fea33d70edb083dc244a2949b)
++++ b/scripts/Kris.py	(date 1775599592731)
+@@ -1,21 +1,17 @@
+-import math
+ import pygame
++import math
+ import random
+ 
+-from scripts.utils import load_image, get_angle
+-from scripts.waste import WasteManager, WASTE_TYPES, _waste_images
++from scripts.utils import load_image, move, get_angle
++from scripts.waste import WasteManager, WASTE_TYPES
+ 
+ scale = 0.15
+ 
+-# ─── Assets ───────────────────────────────────────────────────────────────────
+ images = {
+-    'idle':     load_image('personnage/Kris.png',   scale=scale),
+-    'throwing': load_image('personnage/Kris 2.png', scale=scale),
++    'idle':     load_image('assets/personnage/Kris.png',   scale=scale),
++    'throwing': load_image('assets/personnage/Kris 2.png', scale=scale),
+ }
+ 
+-launch_sound = pygame.mixer.Sound('./assets/launch_jump.mp3')
+-
+-# ─── Constantes de lancer ─────────────────────────────────────────────────────
+ MIN_POWER   = 100
+ MAX_POWER   = 700
+ POWER_SPEED = 300
+@@ -23,29 +19,20 @@
+ 
+ 
+ class Kris:
+-    """
+-    Personnage joueur positionné à gauche de l'écran.
+-
+-    Contrôles :
+-      - Clic gauche enfoncé  → charge la puissance (jauge visible)
+-      - Relâcher le clic     → lance le déchet vers la position de la souris
+-      - L'angle est calculé automatiquement depuis Kris vers la souris.
+-    """
+-
+     CHARGE_COLOR_LOW  = (80,  200,  80)
+     CHARGE_COLOR_HIGH = (220,  60,  60)
+     CHARGE_BAR_W      = 60
+     CHARGE_BAR_H      = 8
+ 
+     def __init__(self, game, bottom: float):
+-        self.game  = game
+-        self.waste_manager: WasteManager = game.waste_manager
++        self.game          = game
++        self.waste_manager = game.waste_manager
+ 
+         self.images = images
+         self.state  = 'idle'
+         self.image  = self.images[self.state]
+ 
+-        size = self.image.get_size()
++        size     = self.image.get_size()
+         center_x = game.width * 0.10
+         self.rect = pygame.FRect(
+             center_x - size[0] / 2,
+@@ -54,16 +41,12 @@
+         )
+ 
+         self.current_waste = self._pick_waste()
+-
+-        self.charging = False
+-        self.power    = 0.0
+-        self.angle    = 0.0
+-
+-        self._bob_t  = 0.0
+-        self._base_y = self.rect.y
++        self.charging      = False
++        self.power         = 0.0
++        self.angle         = 0.0
++        self._bob_t        = 0.0
++        self._base_y       = self.rect.y
+ 
+-    # ── Interne ───────────────────────────────────────────────────────────────
+-
+     def _pick_waste(self) -> str:
+         return random.choice(list(WASTE_TYPES.keys()))
+ 
+@@ -77,13 +60,10 @@
+         b = int(self.CHARGE_COLOR_LOW[2] + (self.CHARGE_COLOR_HIGH[2] - self.CHARGE_COLOR_LOW[2]) * t)
+         return (r, g, b)
+ 
+-    # ── API publique ──────────────────────────────────────────────────────────
+-
+     def update(self, dt: float, mouse_pos: tuple, mouse_down: bool, mouse_released: bool):
+         self.angle = get_angle(self.rect.center, mouse_pos)
+ 
+-        # ── Charge ────────────────────────────────────────────────────────────
+-        if mouse_down and not mouse_released:
++        if mouse_down:
+             if not self.charging:
+                 self.charging = True
+                 self.power    = MIN_POWER
+@@ -91,19 +71,15 @@
+             else:
+                 self.power = min(self.power + POWER_SPEED * dt, MAX_POWER)
+ 
+-        # ── Lancer ────────────────────────────────────────────────────────────
+         if mouse_released and self.charging:
+             self._launch()
+ 
+-        # ── Idle bob ──────────────────────────────────────────────────────────
+         if not self.charging:
+             self._set_state('idle')
+             self._bob_t += dt
+             self.rect.y = self._base_y + math.sin(self._bob_t * 3) * 2
+ 
+     def _launch(self):
+-        launch_sound.play()
+-
+         origin_x = self.rect.right
+         origin_y = self.rect.centery
+ 
+@@ -120,16 +96,14 @@
+         self.current_waste = self._pick_waste()
+         self._set_state('idle')
+ 
+-    # ── Rendu ─────────────────────────────────────────────────────────────────
+-
+     def render(self, surf: pygame.Surface, scroll: int = 0):
+         surf.blit(self.image, (self.rect.x - scroll, self.rect.y))
+         self._render_next_waste(surf, scroll)
+-
+         if self.charging:
+             self._render_charge_bar(surf, scroll)
+ 
+     def _render_next_waste(self, surf: pygame.Surface, scroll: int):
++        from scripts.waste import _waste_images
+         icon = _waste_images.get(self.current_waste)
+         if icon:
+             ix = int(self.rect.centerx - icon.get_width() / 2) - scroll
+Index: scripts/waste.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>import pygame\r\nimport math\r\nfrom scripts.utils import move, get_angle\r\n\r\n# --- CONFIGURATION ---\r\n# Assure-toi que les dossiers existent : assets/dechets/\r\nWASTE_TYPES = {\r\n    'papier': {'path': 'assets/dechets/Papier.png', 'bin_color': 'blue', 'scale': 0.12},\r\n    'bouteille': {'path': 'assets/dechets/Bouteille.png', 'bin_color': 'yellow', 'scale': 0.12},\r\n    'canette': {'path': 'assets/dechets/canette.png', 'bin_color': 'yellow', 'scale': 0.12},\r\n    'banane': {'path': 'assets/dechets/Banane.png', 'bin_color': 'brown', 'scale': 0.12},\r\n}\r\n\r\nGRAVITY = 800\r\nPOWER = 500\r\nROTATION_SPEED = 4\r\n\r\n\r\nclass Waste(pygame.sprite.Sprite):\r\n    \"\"\"\r\n    Un déchet lancé avec une trajectoire physique réelle.\r\n    \"\"\"\r\n\r\n    def __init__(self, game, waste_type, x, y, angle, power=POWER, gravity=GRAVITY):\r\n        super().__init__()\r\n        self.game = game\r\n        self.waste_type = waste_type\r\n\r\n        # Récupération des infos du type\r\n        data = WASTE_TYPES.get(waste_type, WASTE_TYPES['papier'])\r\n        self.bin_color = data['bin_color']\r\n\r\n        # Chargement et redimensionnement de l'image\r\n        try:\r\n            full_img = pygame.image.load(data['path']).convert_alpha()\r\n            w, h = full_img.get_size()\r\n            self._base_image = pygame.transform.scale(full_img, (int(w * data['scale']), int(h * data['scale'])))\r\n        except Exception as e:\r\n            print(f\"Erreur chargement image {waste_type}: {e}\")\r\n            self._base_image = pygame.Surface((30, 30))\r\n            self._base_image.fill((255, 0, 255))  # Rose flash si erreur\r\n\r\n        self.image = self._base_image\r\n        self.rect = self.image.get_rect(center=(x, y))\r\n        self.mask = pygame.mask.from_surface(self.image)\r\n\r\n        # Variables de position physique (float pour la précision)\r\n        self.origin_x = float(x)\r\n        self.origin_y = float(y)\r\n        self.x, self.y = self.origin_x, self.origin_y\r\n\r\n        self.angle = float(angle)\r\n        self.power = float(power)\r\n        self.gravity = float(gravity)\r\n        self.t = 0.0  # Temps écoulé depuis le lancer\r\n\r\n        self.visual_angle = 0.0\r\n        self.active = True\r\n\r\n    def update(self, dt):\r\n        if not self.active:\r\n            return\r\n\r\n        self.t += dt\r\n\r\n        # Calcul de la nouvelle position via utils.move\r\n        self.x, self.y = move(\r\n            (self.origin_x, self.origin_y),\r\n            self.angle,\r\n            self.power,\r\n            self.t,\r\n            self.gravity\r\n        )\r\n\r\n        # Rotation pour l'effet visuel\r\n        self.visual_angle = (self.visual_angle + ROTATION_SPEED) % 360\r\n        self.image = pygame.transform.rotate(self._base_image, -self.visual_angle)\r\n\r\n        # Mise à jour du rectangle de collision (centré sur x, y)\r\n        self.rect = self.image.get_rect(center=(int(self.x), int(self.y)))\r\n\r\n        # Suppression si hors de l'écran (avec marge de sécurité)\r\n        if (self.y > self.game.height + 100 or\r\n                self.x < -100 or\r\n                self.x > self.game.width + 100):\r\n            self.kill()\r\n            self.active = False\r\n\r\n\r\nclass WasteManager:\r\n    \"\"\"\r\n    Le cerveau qui gère tous les déchets pour Rayane.\r\n    \"\"\"\r\n\r\n    def __init__(self, game):\r\n        self.game = game\r\n        self.waste_group = pygame.sprite.Group()\r\n\r\n    def launch(self, waste_type, x, y, angle, power=POWER):\r\n        \"\"\"Lance un déchet avec un angle précis.\"\"\"\r\n        new_waste = Waste(self.game, waste_type, x, y, angle, power)\r\n        self.waste_group.add(new_waste)\r\n        return new_waste\r\n\r\n    def launch_toward(self, waste_type, origin_x, origin_y, target_x, target_y, power=POWER):\r\n        \"\"\"Calcule l'angle vers une cible (ex: souris) et lance.\"\"\"\r\n        angle = get_angle((origin_x, origin_y), (target_x, target_y))\r\n        return self.launch(waste_type, origin_x, origin_y, angle, power)\r\n\r\n    def update(self, dt):\r\n        \"\"\"Met à jour les positions et gère les collisions avec les poubelles.\"\"\"\r\n        self.waste_group.update(dt)\r\n\r\n        # Vérification des collisions entre tes déchets et les poubelles de Sylia\r\n        for waste in self.waste_group:\r\n            # On suppose que game.collectibles contient les instances de Bin\r\n            hit_bins = pygame.sprite.spritecollide(waste, self.game.collectibles, False, pygame.sprite.collide_mask)\r\n\r\n            for bin_obj in hit_bins:\r\n                self._handle_collision(waste, bin_obj)\r\n\r\n    def _handle_collision(self, waste, bin_obj):\r\n        \"\"\"Logique de score quand on touche une poubelle.\"\"\"\r\n        if waste.bin_color == bin_obj.bin_color:\r\n            # C'est la bonne poubelle !\r\n            bin_obj.effect()  # On déclenche l'animation de la poubelle\r\n            if hasattr(self.game, 'on_correct_bin'):\r\n                self.game.on_correct_bin(waste)\r\n        else:\r\n            # Mauvaise poubelle...\r\n            if hasattr(self.game, 'on_wrong_bin'):\r\n                self.game.on_wrong_bin(waste, bin_obj)\r\n\r\n        # Dans les deux cas, le déchet disparaît après l'impact\r\n        waste.kill()\r\n\r\n    def draw(self, surf, scroll=0):\r\n        \"\"\"Affiche les déchets en tenant compte du défilement (scroll).\"\"\"\r\n        for waste in self.waste_group:\r\n            # On ajuste la position d'affichage selon le scroll du décor\r\n            draw_pos = (waste.rect.x - scroll, waste.rect.y)\r\n            surf.blit(waste.image, draw_pos)\r\n\r\n    def clear(self):\r\n        \"\"\"Nettoie tout (utile pour un Game Over).\"\"\"\r\n        self.waste_group.empty()
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/scripts/waste.py b/scripts/waste.py
+--- a/scripts/waste.py	(revision 3812320bcf72356fea33d70edb083dc244a2949b)
++++ b/scripts/waste.py	(date 1775599608161)
+@@ -1,146 +1,132 @@
+ import pygame
+ import math
+-from scripts.utils import move, get_angle
++from scripts.utils import load_image, move, get_angle
+ 
+-# --- CONFIGURATION ---
+-# Assure-toi que les dossiers existent : assets/dechets/
++
+ WASTE_TYPES = {
+-    'papier': {'path': 'assets/dechets/Papier.png', 'bin_color': 'blue', 'scale': 0.12},
+-    'bouteille': {'path': 'assets/dechets/Bouteille.png', 'bin_color': 'yellow', 'scale': 0.12},
+-    'canette': {'path': 'assets/dechets/canette.png', 'bin_color': 'yellow', 'scale': 0.12},
+-    'banane': {'path': 'assets/dechets/Banane.png', 'bin_color': 'brown', 'scale': 0.12},
++    'papier':    {'image': 'assets/dechets/Papier.png',    'bin_color': 'blue',   'scale': 0.12},
++    'bouteille': {'image': 'assets/dechets/Bouteille.png', 'bin_color': 'yellow', 'scale': 0.12},
++    'canette':   {'image': 'assets/dechets/canette.png',   'bin_color': 'yellow', 'scale': 0.12},
++    'banane':    {'image': 'assets/dechets/Banane.png',    'bin_color': 'brown',  'scale': 0.12},
+ }
++
++_waste_images = {}
++for _name, _data in WASTE_TYPES.items():
++    _waste_images[_name] = load_image(_data['image'], scale=_data['scale'])
+ 
+-GRAVITY = 800
+-POWER = 500
++GRAVITY        = 800
++POWER          = 500
+ ROTATION_SPEED = 4
++FPS            = 60
+ 
+ 
+-class Waste(pygame.sprite.Sprite):
+-    """
+-    Un déchet lancé avec une trajectoire physique réelle.
+-    """
+-
+-    def __init__(self, game, waste_type, x, y, angle, power=POWER, gravity=GRAVITY):
+-        super().__init__()
+-        self.game = game
++class Waste:
++    def __init__(self, game, waste_type: str,
++                 x: float, y: float,
++                 angle: float, power: float = POWER, gravity: float = GRAVITY):
++        self.game      = game
+         self.waste_type = waste_type
+-
+-        # Récupération des infos du type
+-        data = WASTE_TYPES.get(waste_type, WASTE_TYPES['papier'])
+-        self.bin_color = data['bin_color']
++        self.bin_color  = WASTE_TYPES[waste_type]['bin_color']
+ 
+-        # Chargement et redimensionnement de l'image
+-        try:
+-            full_img = pygame.image.load(data['path']).convert_alpha()
+-            w, h = full_img.get_size()
+-            self._base_image = pygame.transform.scale(full_img, (int(w * data['scale']), int(h * data['scale'])))
+-        except Exception as e:
+-            print(f"Erreur chargement image {waste_type}: {e}")
+-            self._base_image = pygame.Surface((30, 30))
+-            self._base_image.fill((255, 0, 255))  # Rose flash si erreur
+-
+-        self.image = self._base_image
+-        self.rect = self.image.get_rect(center=(x, y))
+-        self.mask = pygame.mask.from_surface(self.image)
++        self._base_image = _waste_images[waste_type]
++        self.image       = self._base_image
++        self.size        = self.image.get_size()
+ 
+-        # Variables de position physique (float pour la précision)
+         self.origin_x = float(x)
+         self.origin_y = float(y)
+-        self.x, self.y = self.origin_x, self.origin_y
+-
+-        self.angle = float(angle)
+-        self.power = float(power)
+-        self.gravity = float(gravity)
+-        self.t = 0.0  # Temps écoulé depuis le lancer
++        self.angle    = float(angle)
++        self.power    = float(power)
++        self.gravity  = float(gravity)
++        self.t        = 0.0
+ 
++        self.x = self.origin_x
++        self.y = self.origin_y
++
++        self.rect = pygame.Rect(
++            int(self.x - self.size[0] / 2),
++            int(self.y - self.size[1] / 2),
++            *self.size
++        )
+         self.visual_angle = 0.0
+         self.active = True
+ 
+-    def update(self, dt):
++    def update(self, scroll, dt: float = None):
+         if not self.active:
+             return
++        if dt is None:
++            dt = 1.0 / FPS
+ 
+         self.t += dt
+-
+-        # Calcul de la nouvelle position via utils.move
+         self.x, self.y = move(
+             (self.origin_x, self.origin_y),
+-            self.angle,
+-            self.power,
+-            self.t,
+-            self.gravity
++            self.angle, self.power, self.t, self.gravity
+         )
+ 
+-        # Rotation pour l'effet visuel
+         self.visual_angle = (self.visual_angle + ROTATION_SPEED) % 360
+         self.image = pygame.transform.rotate(self._base_image, -self.visual_angle)
++        self.size  = self.image.get_size()
+ 
+-        # Mise à jour du rectangle de collision (centré sur x, y)
+-        self.rect = self.image.get_rect(center=(int(self.x), int(self.y)))
++        self.rect = pygame.Rect(
++            int(self.x - self.size[0] / 2),
++            int(self.y - self.size[1] / 2),
++            *self.size
++        )
+ 
+-        # Suppression si hors de l'écran (avec marge de sécurité)
+         if (self.y > self.game.height + 100 or
+-                self.x < -100 or
+-                self.x > self.game.width + 100):
+-            self.kill()
++                self.x < -200 or self.x > self.game.width + 200):
+             self.active = False
++            return
++
++        for collectible in self.game.collectibles:
++            if self.rect.colliderect(collectible.rect):
++                self._on_hit_bin(collectible)
++                return
++
++    def _on_hit_bin(self, bin_obj):
++        self.active = False
++        if self.bin_color == bin_obj.bin_color:
++            bin_obj.effect()
++            if hasattr(self.game, 'on_correct_bin'):
++                self.game.on_correct_bin(self)
++        else:
++            if hasattr(self.game, 'on_wrong_bin'):
++                self.game.on_wrong_bin(self, bin_obj)
++
++    def render(self, surf, scroll):
++        if not self.active:
++            return
++        draw_x = int(self.x - self.size[0] / 2) - scroll
++        draw_y = int(self.y - self.size[1] / 2)
++        surf.blit(self.image, (draw_x, draw_y))
+ 
+ 
+ class WasteManager:
+-    """
+-    Le cerveau qui gère tous les déchets pour Rayane.
+-    """
+-
+     def __init__(self, game):
+-        self.game = game
+-        self.waste_group = pygame.sprite.Group()
++        self.game   = game
++        self.wastes: list[Waste] = []
+ 
+-    def launch(self, waste_type, x, y, angle, power=POWER):
+-        """Lance un déchet avec un angle précis."""
+-        new_waste = Waste(self.game, waste_type, x, y, angle, power)
+-        self.waste_group.add(new_waste)
+-        return new_waste
++    def launch(self, waste_type: str, x: float, y: float,
++               angle: float, power: float = POWER,
++               gravity: float = GRAVITY) -> Waste:
++        w = Waste(self.game, waste_type, x, y, angle, power, gravity)
++        self.wastes.append(w)
++        return w
+ 
+-    def launch_toward(self, waste_type, origin_x, origin_y, target_x, target_y, power=POWER):
+-        """Calcule l'angle vers une cible (ex: souris) et lance."""
++    def launch_toward(self, waste_type: str,
++                      origin_x: float, origin_y: float,
++                      target_x: float, target_y: float,
++                      power: float = POWER, gravity: float = GRAVITY) -> Waste:
+         angle = get_angle((origin_x, origin_y), (target_x, target_y))
+-        return self.launch(waste_type, origin_x, origin_y, angle, power)
+-
+-    def update(self, dt):
+-        """Met à jour les positions et gère les collisions avec les poubelles."""
+-        self.waste_group.update(dt)
+-
+-        # Vérification des collisions entre tes déchets et les poubelles de Sylia
+-        for waste in self.waste_group:
+-            # On suppose que game.collectibles contient les instances de Bin
+-            hit_bins = pygame.sprite.spritecollide(waste, self.game.collectibles, False, pygame.sprite.collide_mask)
+-
+-            for bin_obj in hit_bins:
+-                self._handle_collision(waste, bin_obj)
++        return self.launch(waste_type, origin_x, origin_y, angle, power, gravity)
+ 
+-    def _handle_collision(self, waste, bin_obj):
+-        """Logique de score quand on touche une poubelle."""
+-        if waste.bin_color == bin_obj.bin_color:
+-            # C'est la bonne poubelle !
+-            bin_obj.effect()  # On déclenche l'animation de la poubelle
+-            if hasattr(self.game, 'on_correct_bin'):
+-                self.game.on_correct_bin(waste)
+-        else:
+-            # Mauvaise poubelle...
+-            if hasattr(self.game, 'on_wrong_bin'):
+-                self.game.on_wrong_bin(waste, bin_obj)
++    def update(self, scroll=0, dt: float = None):
++        for w in self.wastes:
++            w.update(scroll, dt)
++        self.wastes = [w for w in self.wastes if w.active]
+ 
+-        # Dans les deux cas, le déchet disparaît après l'impact
+-        waste.kill()
+-
+-    def draw(self, surf, scroll=0):
+-        """Affiche les déchets en tenant compte du défilement (scroll)."""
+-        for waste in self.waste_group:
+-            # On ajuste la position d'affichage selon le scroll du décor
+-            draw_pos = (waste.rect.x - scroll, waste.rect.y)
+-            surf.blit(waste.image, draw_pos)
++    def render(self, surf, scroll=0):
++        for w in self.wastes:
++            w.render(surf, scroll)
+ 
+     def clear(self):
+-        """Nettoie tout (utile pour un Game Over)."""
+-        self.waste_group.empty()
+\ No newline at end of file
++        self.wastes.clear()
+\ No newline at end of file
+Index: .idea/.gitignore
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/.gitignore b/.idea/.gitignore
+new file mode 100644
+--- /dev/null	(date 1775598380628)
++++ b/.idea/.gitignore	(date 1775598380628)
+@@ -0,0 +1,8 @@
++# Default ignored files
++/shelf/
++/workspace.xml
++# Editor-based HTTP Client requests
++/httpRequests/
++# Datasource local storage ignored files
++/dataSources/
++/dataSources.local.xml
+Index: .idea/inspectionProfiles/profiles_settings.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/inspectionProfiles/profiles_settings.xml b/.idea/inspectionProfiles/profiles_settings.xml
+new file mode 100644
+--- /dev/null	(date 1775598380636)
++++ b/.idea/inspectionProfiles/profiles_settings.xml	(date 1775598380636)
+@@ -0,0 +1,6 @@
++<component name="InspectionProjectProfileManager">
++  <settings>
++    <option name="USE_PROJECT_PROFILE" value="false" />
++    <version value="1.0" />
++  </settings>
++</component>
+\ No newline at end of file
+Index: .idea/Mission-recyclage-.iml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/Mission-recyclage-.iml b/.idea/Mission-recyclage-.iml
+new file mode 100644
+--- /dev/null	(date 1775598380643)
++++ b/.idea/Mission-recyclage-.iml	(date 1775598380643)
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<module type="PYTHON_MODULE" version="4">
++  <component name="NewModuleRootManager">
++    <content url="file://$MODULE_DIR$" />
++    <orderEntry type="jdk" jdkName="Python 3.12" jdkType="Python SDK" />
++    <orderEntry type="sourceFolder" forTests="false" />
++  </component>
++</module>
+\ No newline at end of file
+Index: .idea/modules.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/modules.xml b/.idea/modules.xml
+new file mode 100644
+--- /dev/null	(date 1775598380651)
++++ b/.idea/modules.xml	(date 1775598380651)
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="ProjectModuleManager">
++    <modules>
++      <module fileurl="file://$PROJECT_DIR$/.idea/Mission-recyclage-.iml" filepath="$PROJECT_DIR$/.idea/Mission-recyclage-.iml" />
++    </modules>
++  </component>
++</project>
+\ No newline at end of file
+Index: .idea/misc.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/misc.xml b/.idea/misc.xml
+new file mode 100644
+--- /dev/null	(date 1775598380660)
++++ b/.idea/misc.xml	(date 1775598380660)
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="Black">
++    <option name="sdkName" value="Python 3.12" />
++  </component>
++  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.12" project-jdk-type="Python SDK" />
++</project>
+\ No newline at end of file
+Index: .idea/vcs.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/vcs.xml b/.idea/vcs.xml
+new file mode 100644
+--- /dev/null	(date 1775598380668)
++++ b/.idea/vcs.xml	(date 1775598380668)
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="VcsDirectoryMappings">
++    <mapping directory="" vcs="Git" />
++    <mapping directory="$PROJECT_DIR$" vcs="Git" />
++  </component>
++</project>
+\ No newline at end of file
