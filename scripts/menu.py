@@ -85,7 +85,7 @@ class Menu:
 
             # 🎵 Musique du menu
             if not pygame.mixer.music.get_busy():
-                play("assets/music/music.mp3", 0.3)
+                play("assets/music/music.mp3", 0.5)
 
             # -----------------------------
             # TITRES
@@ -271,7 +271,7 @@ class Menu:
                 return
 
             if self.menu_button.update(self.game.mouse_pos, self.game.mouse_pressed):
-                play("assets/music/music.mp3", 0.3)
+                play("assets/music/music.mp3", 0.5)
                 self.game.to_menu()
 
             if self.quit_button.update(self.game.mouse_pos, self.game.mouse_pressed):
