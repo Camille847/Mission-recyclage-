@@ -51,6 +51,7 @@ class Waste:
         self.visual_angle = 0.0
         self.active = True
         self.on_ground = False
+        self.ground_index = 0  # Index au moment où le déchet touche le sol
 
     def update(self, scroll, dt: float = None):
         if not self.active:
@@ -68,8 +69,11 @@ class Waste:
             if self.y > self.game.ground_y:
                 self.y = self.game.ground_y
                 self.on_ground = True
+                # Enregistrer le nombre de déchets déjà au sol
+                self.ground_index = sum(1 for w in self.game.waste_manager.wastes if w.on_ground and w is not self)
 
-        self.visual_angle = (self.visual_angle + ROTATION_SPEED) % 360
+        if not self.on_ground:
+            self.visual_angle = (self.visual_angle + ROTATION_SPEED) % 360
 
         # rect de collision : taille fixe (image de base), centré sur x/y
         self.rect = pygame.Rect(
@@ -83,11 +87,27 @@ class Waste:
             self.active = False
             return
 
-        if not self.on_ground:
-            for collectible in self.game.collectibles:
+        if not self.on_ground and self.game.collectibles:
+            for collectible in list(self.game.collectibles):
                 if self.rect.colliderect(collectible.rect):
                     self._on_hit_bin(collectible)
                     return
+        
+        # Collision entre déchets au sol
+        if self.on_ground:
+            for other_waste in list(self.game.waste_manager.wastes):
+                if other_waste is self or not other_waste.on_ground:
+                    continue
+                if self.rect.colliderect(other_waste.rect):
+                    # Rebond simple: repousser l'autre déchet
+                    distance = math.sqrt((other_waste.x - self.x)**2 + (other_waste.y - self.y)**2)
+                    if distance > 0:
+                        # Direction du rebond
+                        dx = (other_waste.x - self.x) / distance
+                        dy = (other_waste.y - self.y) / distance
+                        # Repousser l'autre déchet
+                        other_waste.x += dx * 5
+                        other_waste.y += dy * 5
 
     def _on_hit_bin(self, bin_obj):
         self.active = False
@@ -102,8 +122,16 @@ class Waste:
     def render(self, surf, scroll):
         if not self.active:
             return
+        
+        # Agrandir l'image si le déchet touche le sol
+        image = self._base_image
+        if self.on_ground:
+            w, h = self._base_image.get_size()
+            new_w, new_h = int(w * 1.5), int(h * 1.5)
+            image = pygame.transform.scale(self._base_image, (new_w, new_h))
+        
         # On fait la rotation à la volée uniquement pour l'affichage
-        rotated = pygame.transform.rotate(self._base_image, -self.visual_angle)
+        rotated = pygame.transform.rotate(image, -self.visual_angle)
         rot_w, rot_h = rotated.get_size()
         # On centre l'image rotée sur la position réelle du déchet
         draw_x = int(self.x - rot_w / 2) - scroll
@@ -134,6 +162,12 @@ class WasteManager:
         for w in self.wastes:
             w.update(scroll, dt)
         self.wastes = [w for w in self.wastes if w.active]
+        
+        # Compter les déchets au sol
+        ground_wastes = sum(1 for w in self.wastes if w.on_ground)
+        if ground_wastes >= 15:
+            if hasattr(self.game, '_trigger_game_over'):
+                self.game._trigger_game_over()
 
     def render(self, surf, scroll=0):
         for w in self.wastes:

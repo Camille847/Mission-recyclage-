@@ -119,6 +119,9 @@ class Game:
 
     def play(self):
         self.in_game = True
+        self.mouse_pressed  = False
+        self.mouse_held     = False
+        self.mouse_released = False
         self._spawn_bins()
 
     def retry(self):
@@ -163,8 +166,7 @@ class Game:
     def _advance_level(self):
         next_level = self.level + 1
         if next_level >= MAX_LEVEL:
-            self._trigger_game_over()
-            return
+            next_level = 0  # Boucle au premier niveau
         self.level       = next_level
         self.bins_filled = 0
         self.correct_per_color = {c: 0 for c in BAR_ORDER}
@@ -192,8 +194,6 @@ class Game:
         self.lives -= 1
         self.score  = max(0, self.score - PENALTY_WRONG)
         self.menu.new_message()
-        if self.lives <= 0:
-            self._trigger_game_over()
 
     def _trigger_game_over(self):
         self.game_over = True
@@ -253,14 +253,14 @@ class Game:
 
             # Trajectoire : on simule jusqu'à ce que le projectile touche le sol
             # ou sorte de l'écran, avec des points espacés régulièrement
-            if self.kris.charging and self.kris.power > 0 and not any(w.active for w in self.waste_manager.wastes):
+            if self.kris.charging and self.kris.power > 0:
                 ipos = (self.kris.rect.right, self.kris.rect.centery)
 
                 step = 0.02  # plus grand = trajectoire plus longue affichée
                 t = step
                 prev_point = None
 
-                for i in range(80):
+                for i in range(12):
                     x, y = move(ipos, self.kris.angle, self.kris.power, t, GRAVITY)
                     t += step
 

@@ -62,17 +62,6 @@ class Collectible:
 
         surf.blit(self.image, (draw_x, draw_y))
 
-        gauge_x = draw_x + (self.size[0] - GAUGE_WIDTH) // 2
-        gauge_y = draw_y + self.size[1] + GAUGE_OFFSET_Y
-
-        pygame.draw.rect(surf, GAUGE_BG_COLOR,
-                         (gauge_x, gauge_y, GAUGE_WIDTH, GAUGE_HEIGHT))
-        fill_w = int(GAUGE_WIDTH * self.waste_count / MAX_WASTE)
-        if fill_w > 0:
-            pygame.draw.rect(surf, self.gauge_color,
-                             (gauge_x, gauge_y, fill_w, GAUGE_HEIGHT))
-        pygame.draw.rect(surf, GAUGE_BORDER,
-                         (gauge_x, gauge_y, GAUGE_WIDTH, GAUGE_HEIGHT), 1)
 
 
 class BlueBin(Collectible):
