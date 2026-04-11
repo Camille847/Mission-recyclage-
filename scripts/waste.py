@@ -4,10 +4,10 @@ from scripts.utils import load_image, move, get_angle
 
 
 WASTE_TYPES = {
-    'papier':    {'image': 'assets/dechets/Papier.png',    'bin_color': 'blue',   'scale': 0.05},
-    'bouteille': {'image': 'assets/dechets/Bouteille.png', 'bin_color': 'yellow', 'scale': 0.05},
-    'canette':   {'image': 'assets/dechets/canette.png',   'bin_color': 'yellow', 'scale': 0.05},
-    'banane':    {'image': 'assets/dechets/Banane.png',    'bin_color': 'brown',  'scale': 0.05},
+    'papier':    {'image': 'assets/dechets/Papier.png',    'bin_color': 'blue',   'scale': 0.08},
+    'bouteille': {'image': 'assets/dechets/Bouteille.png', 'bin_color': 'yellow', 'scale': 0.08},
+    'canette':   {'image': 'assets/dechets/canette.png',   'bin_color': 'yellow', 'scale': 0.08},
+    'banane':    {'image': 'assets/dechets/Banane.png',    'bin_color': 'brown',  'scale': 0.08},
 }
 
 _waste_images = {}
@@ -15,7 +15,7 @@ for _name, _data in WASTE_TYPES.items():
     _waste_images[_name] = load_image(_data['image'], scale=_data['scale'])
 
 GRAVITY        = 800
-POWER          = 500
+POWER          = 850
 ROTATION_SPEED = 4
 FPS            = 60
 
@@ -50,6 +50,7 @@ class Waste:
 
         self.visual_angle = 0.0
         self.active = True
+        self.on_ground = False
 
     def update(self, scroll, dt: float = None):
         if not self.active:
@@ -57,11 +58,16 @@ class Waste:
         if dt is None:
             dt = 1.0 / FPS
 
-        self.t += dt
-        self.x, self.y = move(
-            (self.origin_x, self.origin_y),
-            self.angle, self.power, self.t, self.gravity
-        )
+        if not self.on_ground:
+            self.t += dt
+            self.x, self.y = move(
+                (self.origin_x, self.origin_y),
+                self.angle, self.power, self.t, self.gravity
+            )
+
+            if self.y > self.game.ground_y:
+                self.y = self.game.ground_y
+                self.on_ground = True
 
         self.visual_angle = (self.visual_angle + ROTATION_SPEED) % 360
 
@@ -77,10 +83,11 @@ class Waste:
             self.active = False
             return
 
-        for collectible in self.game.collectibles:
-            if self.rect.colliderect(collectible.rect):
-                self._on_hit_bin(collectible)
-                return
+        if not self.on_ground:
+            for collectible in self.game.collectibles:
+                if self.rect.colliderect(collectible.rect):
+                    self._on_hit_bin(collectible)
+                    return
 
     def _on_hit_bin(self, bin_obj):
         self.active = False

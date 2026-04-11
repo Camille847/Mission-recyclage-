@@ -1,11 +1,9 @@
 import pygame
 pygame.init()
 
-from random import random, randint, choice
-
-from scripts.utils import get_angle, smooth, move, clamp
-from scripts.waste import WasteManager, WASTE_TYPES
-from scripts.bin import BlueBin, YellowBin, BrownBin, GreenBin, BIN_CLASSES
+from scripts.utils import move
+from scripts.waste import WasteManager
+from scripts.bin import BIN_CLASSES
 from scripts.Kris import Kris
 from scripts.menu import Menu
 from scripts.client import Client, TextInput, blit_center
@@ -14,10 +12,10 @@ WIDTH  = 800
 HEIGHT = 600
 SIZE   = (WIDTH, HEIGHT)
 
-def load_bg(path):
+def load_bg(path, size):
     return pygame.transform.smoothscale(
-        pygame.image.load(path).convert(),
-        (WIDTH, HEIGHT)
+        pygame.image.load(path).convert_alpha(),
+        size
     )
 
 
@@ -43,17 +41,16 @@ BAR_COLORS = {
 }
 BAR_ORDER = ['blue', 'yellow', 'brown', 'green']
 
-GRAVITY = 800
+GRAVITY = 600
 
 
 class Game:
 
     def __init__(self):
-        self.width  = WIDTH
-        self.height = HEIGHT
-        self.window = pygame.display.set_mode(SIZE)
+        self.window = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
         pygame.display.set_caption('Mission Recyclage')
-        self.level_backgrounds = [load_bg(p) for p in LEVEL_BACKGROUNDS_PATHS]
+        self.width, self.height = self.window.get_size()
+        self.level_backgrounds = [load_bg(p, (self.width, self.height)) for p in LEVEL_BACKGROUNDS_PATHS]
         self.clock   = pygame.time.Clock()
         self.running = False
 
@@ -86,7 +83,7 @@ class Game:
         self.collectibles: list = []
         self.waste_manager = WasteManager(self)
 
-        ground_y = HEIGHT - 80
+        ground_y = self.height - 80
         self.kris = Kris(self, bottom=ground_y)
         self.ground_y = ground_y
 
@@ -96,7 +93,7 @@ class Game:
         self.message       = ''
         self.message_timer = 0
         self.text_input    = TextInput(
-            (WIDTH / 2, HEIGHT - 75),
+            (self.width / 2, self.height - 75),
             self.set_username,
             'pseudo'
         )
@@ -121,7 +118,6 @@ class Game:
                 print(err)
 
     def play(self):
-        self.window = pygame.display.set_mode(SIZE, pygame.FULLSCREEN)
         self.in_game = True
         self._spawn_bins()
 
@@ -130,7 +126,6 @@ class Game:
         self.in_game = True
 
     def to_menu(self):
-        self.window = pygame.display.set_mode(SIZE)
         self._reset()
         self.in_game = False
 
@@ -158,8 +153,8 @@ class Game:
     def _spawn_bins(self):
         self.collectibles.clear()
         colors  = list(BIN_CLASSES.keys())
-        spacing = (WIDTH - WIDTH * 0.35) / BINS_PER_LEVEL
-        x_start = WIDTH * 0.38
+        spacing = (self.width - self.width * 0.35) / BINS_PER_LEVEL
+        x_start = self.width * 0.38
         for i, color in enumerate(colors):
             BinClass = BIN_CLASSES[color]
             bin_obj  = _make_bin(BinClass, self, x_start + i * spacing, self.ground_y)
@@ -253,28 +248,31 @@ class Game:
             for c in self.collectibles:
                 c.render(self.window, scroll=0)
 
+            self.kris.update(dt, self.mouse_pos, self.mouse_held, self.mouse_released)
+            self.kris.render(self.window, scroll=0)
+
             # Trajectoire : on simule jusqu'à ce que le projectile touche le sol
             # ou sorte de l'écran, avec des points espacés régulièrement
             if self.kris.charging and self.kris.power > 0 and not any(w.active for w in self.waste_manager.wastes):
                 ipos = (self.kris.rect.right, self.kris.rect.centery)
-                step = 0.003   # pas de temps entre chaque point
+
+                step = 0.02  # plus grand = trajectoire plus longue affichée
                 t = step
                 prev_point = None
-                for _ in range(60):  # 60 points max
+
+                for i in range(80):
                     x, y = move(ipos, self.kris.angle, self.kris.power, t, GRAVITY)
                     t += step
-                    if x < 0 or x > WIDTH + 50:
+
+                    if x < 0 or x > self.width + 100:
                         break
                     if y > self.ground_y:
                         break
-                    # on dessine un point tous les 2 pas pour espacer
-                    if _ % 2 == 0:
-                        alpha = int(255 * (1 - _ / 60))  # fondu vers la fin
-                        radius = 3
-                        pygame.draw.circle(self.window, (255, 80, 80), (int(x), int(y)), radius)
 
-            self.kris.update(dt, self.mouse_pos, self.mouse_held, self.mouse_released)
-            self.kris.render(self.window, scroll=0)
+                    if i % 2 == 0:
+                        alpha = int(255 * (1 - t / 60))  # fondu vers la fin
+                        radius = 6
+                        pygame.draw.circle(self.window, (255, 0, 0), (int(x), int(y)), radius)
 
             self.waste_manager.update(scroll=0, dt=dt)
             self.waste_manager.render(self.window, scroll=0)
@@ -306,7 +304,7 @@ class Game:
                 else:
                     font = self.text_input.font
                     surf, _ = font.render(self.message, 'red', size=20)
-                    blit_center(self.window, surf, (WIDTH / 2, 285))
+                    blit_center(self.window, surf, (self.width / 2, 285))
 
         pygame.display.flip()
 
@@ -339,17 +337,17 @@ class Game:
 
         name = self._level_names[self.level]
         level_surf = self.font_level.render(f'Niveau {self.level + 1} – {name}', True, (200, 240, 200))
-        self.window.blit(level_surf, (WIDTH - level_surf.get_width() - 12, 8))
+        self.window.blit(level_surf, (self.width - level_surf.get_width() - 12, 8))
 
         prog_surf = self.font_level.render(
             f'Poubelles : {self.bins_filled}/{BINS_PER_LEVEL}', True, (200, 240, 200)
         )
-        self.window.blit(prog_surf, (WIDTH - prog_surf.get_width() - 12, 34))
+        self.window.blit(prog_surf, (self.width - prog_surf.get_width() - 12, 34))
 
     def _render_level_message(self):
         surf   = self.font_msg.render(self._level_msg, True, (255, 240, 80))
         shadow = self.font_msg.render(self._level_msg, True, (60, 40, 0))
-        cx, cy = WIDTH // 2, HEIGHT // 2 - 60
+        cx, cy = self.width // 2, self.height // 2 - 60
         self.window.blit(shadow, shadow.get_rect(center=(cx + 3, cy + 3)))
         self.window.blit(surf,   surf.get_rect(center=(cx, cy)))
 

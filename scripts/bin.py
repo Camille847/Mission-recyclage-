@@ -2,10 +2,10 @@ import pygame
 from scripts.utils import load_image
 
 
-blue_bin_image   = load_image('assets/poubelles/BlueBin.png',   scale=0.11)
-yellow_bin_image = load_image('assets/poubelles/YellowBin.png', scale=0.11)
-brown_bin_image  = load_image('assets/poubelles/BrownBin.png',  scale=0.11)
-green_bin_image  = load_image('assets/poubelles/GreenBin.png',  scale=0.11)
+blue_bin_image   = load_image('assets/poubelles/BlueBin.png',   scale=0.18)
+yellow_bin_image = load_image('assets/poubelles/YellowBin.png', scale=0.17)
+brown_bin_image  = load_image('assets/poubelles/BrownBin.png',  scale=0.18)
+green_bin_image  = load_image('assets/poubelles/GreenBin.png',  scale=0.18)
 
 MAX_WASTE      = 5
 GAUGE_WIDTH    = 50
@@ -30,10 +30,10 @@ class Collectible:
         self.game  = game
         self.image = image
         self.size  = self.image.get_size()
-        self.rect  = pygame.Rect(
-            platform.rect.centerx - self.size[0] / 2,
-            platform.rect.top - self.size[1],
-            *self.size
+        OFFSET_Y = 8
+
+        self.rect = self.image.get_rect(
+            midbottom=(platform.rect.centerx, platform.rect.bottom + OFFSET_Y)
         )
         self.platform             = platform
         self.platform.collectible = self

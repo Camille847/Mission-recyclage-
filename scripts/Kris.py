@@ -36,13 +36,12 @@ except:
 
 # ─── Constantes de lancer ─────────────────────────────────────────────────────
 MIN_POWER   = 100
-MAX_POWER   = 700
-POWER_SPEED = 300
+MAX_POWER   = 1200
 GRAVITY     = 800
 
 
 class Kris:
-    CHARGE_COLOR_LOW  = (80,  200,  80)
+    CHARGE_COLOR_LOW  = (220,  60,  60)
     CHARGE_COLOR_HIGH = (220,  60,  60)
     CHARGE_BAR_W      = 60
     CHARGE_BAR_H      = 8
@@ -98,16 +97,29 @@ class Kris:
         return (r, g, b)
 
     def update(self, dt: float, mouse_pos: tuple, mouse_down: bool, mouse_released: bool):
-        # angle depuis le perso vers la souris (ordre correct)
-        self.angle = get_angle(mouse_pos, self.rect.center)
 
         if mouse_down and not mouse_released:
             if not self.charging:
                 self.charging = True
-                self.power    = MIN_POWER
                 self._set_state('throwing')
-            else:
-                self.power = min(self.power + POWER_SPEED * dt, MAX_POWER)
+
+            mouse_x, mouse_y = mouse_pos
+
+            px = self.rect.centerx
+            py = self.rect.centery
+
+            dx = mouse_x - px
+            dy = mouse_y - py
+
+            distance = math.sqrt(dx ** 2 + dy ** 2)
+
+            MAX_PULL = 150
+            distance = min(distance, MAX_PULL)
+
+            self.angle = math.atan2(-dy, dx)
+
+            ratio = distance / MAX_PULL
+            self.power = MIN_POWER + ratio * (MAX_POWER - MIN_POWER)
 
         if mouse_released and self.charging:
             self._launch()
@@ -117,7 +129,7 @@ class Kris:
             self._bob_t += dt
             # bob vertical : on déplace uniquement _base_y en Y
             bob_offset = int(math.sin(self._bob_t * 3) * 2)
-            self.rect.y = (self._bottom - self.rect.height) + bob_offset
+            self.rect.y = int((self._bottom - self.rect.height) + bob_offset)
 
     def _launch(self):
         if launch_sound:
