@@ -1,4 +1,5 @@
 import pygame
+import math
 from scripts.utils import load_image
 
 
@@ -38,6 +39,37 @@ class Collectible:
         self.platform             = platform
         self.platform.collectible = self
         self.waste_count          = 0
+        self.direction            = 1  # for moving bins
+        self.tick                 = 0
+        self.blink                = True
+        self.dance_offset         = 0
+        self.initial_x            = self.rect.centerx
+
+    def update(self, dt):
+        self.tick += 1
+        if self.game.level == 1:  # café level, bins oscillate around initial position
+            self.rect.centerx = self.initial_x + int(math.sin(self.tick * 0.05) * 30)
+        elif self.game.level == 2:  # evening level, bins approach Kris
+            # Move towards Kris slowly
+            kris_x = self.game.kris.rect.centerx
+            dx = kris_x - self.rect.centerx
+            if abs(dx) > 5:  # lower threshold
+                speed = 5  # very slow speed
+                direction = 1 if dx > 0 else -1
+                self.rect.x += speed * dt * direction
+            
+            # Dance: small vertical movement
+            self.dance_offset = math.sin(self.tick * 0.1) * 3
+            
+            # Blinking
+            self.blink = (self.tick % 20) < 10  # blink every 10 frames out of 20
+            
+            # Check collision with Kris
+            if self.rect.colliderect(self.game.kris.rect):
+                self.game._trigger_game_over()
+        else:
+            self.dance_offset = 0
+            self.blink = True
 
     def effect(self):
         self.waste_count += 1
@@ -58,10 +90,16 @@ class Collectible:
     def render(self, surf, scroll):
         # scroll est un entier (pas une liste)
         draw_x = self.rect.x - scroll
-        draw_y = self.rect.y
+        draw_y = self.rect.y + self.dance_offset
 
-        surf.blit(self.image, (draw_x, draw_y))
-
+        if self.blink:
+            surf.blit(self.image, (draw_x, draw_y))
+        else:
+            # Dim version for blinking
+            temp_surf = pygame.Surface(self.image.get_size(), pygame.SRCALPHA)
+            temp_surf.blit(self.image, (0, 0))
+            temp_surf.set_alpha(100)
+            surf.blit(temp_surf, (draw_x, draw_y))
 
 
 class BlueBin(Collectible):

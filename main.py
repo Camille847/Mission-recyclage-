@@ -1,4 +1,5 @@
 import pygame
+import random
 pygame.init()
 
 from scripts.utils import move
@@ -21,7 +22,7 @@ def load_bg(path, size):
 
 LEVEL_BACKGROUNDS_PATHS = [
     'assets/decor/Décor Matin.png',
-    'assets/decor/Décor Bakery.png',
+    'assets/decor/Décor Cafét.png',
     'assets/decor/Décor Nuit.png',
 ]
 
@@ -41,7 +42,7 @@ BAR_COLORS = {
 }
 BAR_ORDER = ['blue', 'yellow', 'brown', 'green']
 
-GRAVITY = 600
+GRAVITY = 800
 
 
 class Game:
@@ -69,12 +70,13 @@ class Game:
         self.correct_per_color = {c: 0 for c in BAR_ORDER}
 
         self.level        = 0
+        self.selected_level = 0
         self.bins_filled  = 0
         self.background = self.level_backgrounds[self.level]
 
         self._level_msg_timer = 0
         self._level_msg       = ''
-        self._level_names     = ['Matin', 'Bakery', 'Soir']
+        self._level_names     = ['Matin', 'Cafét', 'Soir']
 
         self.font_score = pygame.font.SysFont('arial', 26, bold=True)
         self.font_level = pygame.font.SysFont('arial', 22, bold=True)
@@ -83,10 +85,11 @@ class Game:
         self.collectibles: list = []
         self.waste_manager = WasteManager(self)
 
-        ground_y = self.height - 80
-        self.kris = Kris(self, bottom=ground_y)
-        self.ground_y = ground_y
+        # Ground levels per level (to account for different decor heights)
+        self.ground_ys = [self.height - 80, self.height - 80, self.height - 100]
+        self.ground_y = self.ground_ys[self.level]
 
+        self.kris = Kris(self, bottom=self.ground_y)
         self.menu = Menu(self)
 
         self.client = Client('mission_recyclage')
@@ -118,6 +121,9 @@ class Game:
                 print(err)
 
     def play(self):
+        self.level = self.selected_level
+        self.background = self.level_backgrounds[self.level]
+        self.ground_y = self.ground_ys[self.level]
         self.in_game = True
         self.mouse_pressed  = False
         self.mouse_held     = False
@@ -143,9 +149,10 @@ class Game:
         self.score          = 0
         self.lives          = MAX_LIVES
         self.correct_per_color = {c: 0 for c in BAR_ORDER}
-        self.level          = 0
+        self.level          = self.selected_level
         self.bins_filled    = 0
         self.background     = self.level_backgrounds[self.level]
+        self.ground_y       = self.ground_ys[self.level]
         self._level_msg_timer = 0
         self._level_msg       = ''
         self.collectibles.clear()
@@ -155,12 +162,53 @@ class Game:
 
     def _spawn_bins(self):
         self.collectibles.clear()
-        colors  = list(BIN_CLASSES.keys())
-        spacing = (self.width - self.width * 0.35) / BINS_PER_LEVEL
-        x_start = self.width * 0.38
+        colors = list(BIN_CLASSES.keys())
+        
+        if self.level == 1:  # Café level: fixed positions, further right, equidistant
+            positions = [450, 550, 650, 750]
+        else:
+            # Zone de spawn pour les poubelles
+            min_x = int(self.width * 0.3)  # Pas trop près de Kris (à gauche)
+            max_x = int(self.width - 100)  # Pas trop près du bord droit
+            bin_width = 80  # Largeur approximative d'une poubelle
+            min_dist_to_kris = 150  # Distance minimale à Kris
+            min_dist_between = 120  # Distance minimale entre poubelles (pour éviter chevauchement)
+            
+            positions = []
+            kris_x = self.kris.rect.centerx
+            
+            for i in range(BINS_PER_LEVEL):
+                attempts = 0
+                while attempts < 100:  # Limite d'essais pour éviter boucle infinie
+                    x = random.randint(min_x, max_x)
+                    
+                    # Vérifier distance à Kris
+                    if abs(x - kris_x) < min_dist_to_kris:
+                        attempts += 1
+                        continue
+                    
+                    # Vérifier distance aux autres poubelles
+                    too_close = False
+                    for px in positions:
+                        if abs(x - px) < min_dist_between:
+                            too_close = True
+                            break
+                    
+                    if not too_close:
+                        positions.append(x)
+                        break
+                    
+                    attempts += 1
+                else:
+                    # Si impossible de trouver une position, utiliser une position par défaut espacée
+                    x = min_x + i * (max_x - min_x) // BINS_PER_LEVEL
+                    positions.append(x)
+        
+        # Créer les poubelles aux positions choisies
         for i, color in enumerate(colors):
+            x = positions[i]
             BinClass = BIN_CLASSES[color]
-            bin_obj  = _make_bin(BinClass, self, x_start + i * spacing, self.ground_y)
+            bin_obj = _make_bin(BinClass, self, x, self.ground_y)
             self.collectibles.append(bin_obj)
 
     def _advance_level(self):
@@ -232,6 +280,8 @@ class Game:
                 elif event.key == pygame.K_r and self.in_game:
                     self._reset()
                     self.in_game = True
+                elif event.key == pygame.K_n and self.in_game:
+                    self._advance_level()
 
             elif event.type == pygame.QUIT:
                 self.quit()
@@ -249,6 +299,8 @@ class Game:
                 c.render(self.window, scroll=0)
 
             self.kris.update(dt, self.mouse_pos, self.mouse_held, self.mouse_released)
+            for c in self.collectibles:
+                c.update(dt)
             self.kris.render(self.window, scroll=0)
 
             # Trajectoire : on simule jusqu'à ce que le projectile touche le sol
@@ -260,7 +312,7 @@ class Game:
                 t = step
                 prev_point = None
 
-                for i in range(12):
+                for i in range(8):
                     x, y = move(ipos, self.kris.angle, self.kris.power, t, GRAVITY)
                     t += step
 
@@ -294,8 +346,14 @@ class Game:
             self.menu.render_game_over(self.window)
 
         else:
-            self.menu.update_main()
-            self.menu.render_main(self.window)
+            if self.menu.in_level_select:
+                self.menu.update_level_select()
+            else:
+                self.menu.update_main()
+            if self.menu.in_level_select:
+                self.menu.render_level_select(self.window)
+            else:
+                self.menu.render_main(self.window)
 
             if self.message_timer > 0:
                 self.message_timer -= dt_ms

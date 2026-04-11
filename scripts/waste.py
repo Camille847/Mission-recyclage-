@@ -99,15 +99,17 @@ class Waste:
                 if other_waste is self or not other_waste.on_ground:
                     continue
                 if self.rect.colliderect(other_waste.rect):
-                    # Rebond simple: repousser l'autre déchet
+                    # Rebond: repousser l'autre déchet
                     distance = math.sqrt((other_waste.x - self.x)**2 + (other_waste.y - self.y)**2)
                     if distance > 0:
                         # Direction du rebond
                         dx = (other_waste.x - self.x) / distance
                         dy = (other_waste.y - self.y) / distance
-                        # Repousser l'autre déchet
-                        other_waste.x += dx * 5
-                        other_waste.y += dy * 5
+                        # Repousser l'autre déchet avec une force
+                        push_force = 10
+                        other_waste.x += dx * push_force
+                        # Garder le déchet au sol (y ne change pas)
+                        other_waste.y = self.game.ground_y
 
     def _on_hit_bin(self, bin_obj):
         self.active = False
