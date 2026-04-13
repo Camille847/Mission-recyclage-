@@ -44,6 +44,9 @@ BAR_ORDER = ['blue', 'yellow', 'brown', 'green']
 
 GRAVITY = 800
 
+# Délai entre chaque apparition de poubelle au niveau nuit (en ms) — doublé
+NIGHT_SPAWN_INTERVAL = 4000
+
 
 class Game:
 
@@ -104,7 +107,11 @@ class Game:
             self.text_input.text = self.client.username
             self.text_input.resize()
 
-        self.game_completed = False  # Pour suivre si le jeu est terminé avec succès
+        self.game_completed = False
+
+        # File d'attente pour le spawn séquentiel au niveau nuit
+        self._pending_bins: list = []   # liste de (color, x)
+        self._spawn_timer: float = 0    # ms restantes avant prochain spawn
 
     def set_username(self, username):
         if self.client.registered:
@@ -138,8 +145,8 @@ class Game:
 
     def to_menu(self):
         self._reset()
-        self.game_completed = False  # Réinitialiser l'état de victoire
-        self.menu.show_menu_bg = True  # Réactiver le fond du menu
+        self.game_completed = False
+        self.menu.show_menu_bg = True
         self.in_game = False
 
     def quit(self):
@@ -159,77 +166,99 @@ class Game:
         self.ground_y       = self.ground_ys[self.level]
         self._level_msg_timer = 0
         self._level_msg       = ''
+        self._pending_bins    = []
+        self._spawn_timer     = 0
         self.collectibles.clear()
         self.waste_manager.clear()
         self.kris = Kris(self, bottom=self.ground_y)
         self._spawn_bins()
 
+    # ------------------------------------------------------------------
+    # Spawn des poubelles
+    # ------------------------------------------------------------------
+
     def _spawn_bins(self):
         self.collectibles.clear()
+        self._pending_bins = []
+        self._spawn_timer  = 0
+
         colors = list(BIN_CLASSES.keys())
-        
-        if self.level == 1:  # Café level: fixed positions, further right, equidistant
-            positions = [450, 550, 650, 750]
+
+        if self.level == 1:
+            positions = [350, 600, 850, 1100]
+
+        elif self.level == 2:
+            # Niveau nuit : les poubelles spawent hors écran à droite,
+            # espacées pour ne jamais se chevaucher à l'apparition
+            positions = [self.width + 80 + i * 60 for i in range(BINS_PER_LEVEL)]
+
         else:
-            # Zone de spawn pour les poubelles
-            min_x = int(self.width * 0.3)  # Pas trop près de Kris (à gauche)
-            max_x = int(self.width - 100)  # Pas trop près du bord droit
-            bin_width = 80  # Largeur approximative d'une poubelle
-            min_dist_to_kris = 150  # Distance minimale à Kris
-            min_dist_between = 120  # Distance minimale entre poubelles (pour éviter chevauchement)
-            
+            # Niveaux autres (matin) : positions aléatoires en évitant Kris
+            min_x = int(self.width * 0.3)
+            max_x = int(self.width - 100)
+            min_dist_to_kris = 150
+            min_dist_between = 120
+
             positions = []
             kris_x = self.kris.rect.centerx
-            
+
             for i in range(BINS_PER_LEVEL):
                 attempts = 0
-                while attempts < 100:  # Limite d'essais pour éviter boucle infinie
+                while attempts < 100:
                     x = random.randint(min_x, max_x)
-                    
-                    # Vérifier distance à Kris
                     if abs(x - kris_x) < min_dist_to_kris:
                         attempts += 1
                         continue
-                    
-                    # Vérifier distance aux autres poubelles
-                    too_close = False
-                    for px in positions:
-                        if abs(x - px) < min_dist_between:
-                            too_close = True
-                            break
-                    
+                    too_close = any(abs(x - px) < min_dist_between for px in positions)
                     if not too_close:
                         positions.append(x)
                         break
-                    
                     attempts += 1
                 else:
-                    # Si impossible de trouver une position, utiliser une position par défaut espacée
                     x = min_x + i * (max_x - min_x) // BINS_PER_LEVEL
                     positions.append(x)
-        
-        # Créer les poubelles aux positions choisies
-        for i, color in enumerate(colors):
-            x = positions[i]
-            BinClass = BIN_CLASSES[color]
-            bin_obj = _make_bin(BinClass, self, x, self.ground_y)
-            self.collectibles.append(bin_obj)
+
+        if self.level == 2:
+            # Spawn séquentiel : prépare la file, spawne la première immédiatement
+            pairs = list(zip(colors, positions))
+            random.shuffle(pairs)
+            self._pending_bins = pairs
+            self._spawn_next_bin()
+        else:
+            for i, color in enumerate(colors):
+                x = positions[i]
+                BinClass = BIN_CLASSES[color]
+                bin_obj = _make_bin(BinClass, self, x, self.ground_y)
+                self.collectibles.append(bin_obj)
+
+    def _spawn_next_bin(self):
+        """Retire la prochaine entrée de la file et crée la poubelle."""
+        if not self._pending_bins:
+            return
+        color, x = self._pending_bins.pop(0)
+        BinClass = BIN_CLASSES[color]
+        bin_obj  = _make_bin(BinClass, self, x, self.ground_y)
+        self.collectibles.append(bin_obj)
+        if self._pending_bins:
+            self._spawn_timer = NIGHT_SPAWN_INTERVAL
+
+    # ------------------------------------------------------------------
 
     def _advance_level(self):
         next_level = self.level + 1
         if next_level >= MAX_LEVEL:
-            # Le jeu est terminé avec succès (niveau soir complété)
             self.game_completed = True
             self.in_game = False
             self.menu.show_menu_bg = False
             self.menu.in_level_select = False
             self.menu.in_rules = False
-            return  # Sortir sans continuer l'avancement normal
-        
+            return
+
         self.level       = next_level
         self.bins_filled = 0
         self.correct_per_color = {c: 0 for c in BAR_ORDER}
         self.background  = self.level_backgrounds[self.level]
+        self.ground_y    = self.ground_ys[self.level]
         name = self._level_names[self.level]
         self._level_msg       = f'Niveau {self.level + 1} – {name} !'
         self._level_msg_timer = 2500
@@ -301,15 +330,19 @@ class Game:
 
         if self.in_game or self.game_over:
             if self.game_over:
-                # Fond gris pour le game over
                 self.window.fill((100, 100, 100))
             else:
                 self.window.blit(self.background, (0, 0))
         else:
             self.window.blit(self.level_backgrounds[0], (0, 0))
 
-
         if self.in_game and not self.game_over:
+            # ---- Spawn séquentiel (niveau nuit uniquement) ----
+            if self.level == 2 and self._pending_bins:
+                self._spawn_timer -= dt_ms
+                if self._spawn_timer <= 0:
+                    self._spawn_next_bin()
+
             for c in self.collectibles:
                 c.render(self.window, scroll=0)
 
@@ -318,28 +351,23 @@ class Game:
                 c.update(dt)
             self.kris.render(self.window, scroll=0)
 
-            # Trajectoire : on simule jusqu'à ce que le projectile touche le sol
-            # ou sorte de l'écran, avec des points espacés régulièrement
+            # Trajectoire simulée
             if self.kris.charging and self.kris.power > 0:
                 ipos = (self.kris.rect.right, self.kris.rect.centery)
-
-                step = 0.02  # plus grand = trajectoire plus longue affichée
+                step = 0.016
                 t = step
-                prev_point = None
+                point_count = 0
 
-                for i in range(8):
+                while t < 10:
                     x, y = move(ipos, self.kris.angle, self.kris.power, t, GRAVITY)
                     t += step
-
                     if x < 0 or x > self.width + 100:
                         break
                     if y > self.ground_y:
                         break
-
-                    if i % 2 == 0:
-                        alpha = int(255 * (1 - t / 60))  # fondu vers la fin
-                        radius = 6
-                        pygame.draw.circle(self.window, (255, 0, 0), (int(x), int(y)), radius)
+                    if point_count % 2 == 0:
+                        pygame.draw.circle(self.window, (255, 0, 0), (int(x), int(y)), 3)
+                    point_count += 1
 
             self.waste_manager.update(scroll=0, dt=dt)
             self.waste_manager.render(self.window, scroll=0)
@@ -360,10 +388,7 @@ class Game:
             self.menu.update_game_over()
             self.menu.render_game_over(self.window)
 
-
-            # UPDATE
         else:
-            # PRIORITÉ ABSOLUE À LA VICTOIRE
             if self.game_completed:
                 self.menu.update_victory()
                 self.menu.render_victory(self.window)
@@ -380,16 +405,12 @@ class Game:
                 self.menu.update_main()
                 self.menu.render_main(self.window)
 
-            # RENDER
             if self.menu.in_rules:
                 self.menu.render_rules(self.window)
-
             elif self.menu.in_level_select:
                 self.menu.render_level_select(self.window)
-
             elif self.game_completed:
                 self.menu.render_victory(self.window)
-
             else:
                 self.menu.render_main(self.window)
 

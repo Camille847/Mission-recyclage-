@@ -22,6 +22,12 @@ GAUGE_COLORS = {
     'green':  ( 50, 170,  60),
 }
 
+# Vitesse d'approche au niveau nuit (pixels / seconde)
+NIGHT_BIN_SPEED = 22
+
+# Espacement minimum entre deux poubelles (en pixels entre leurs centres)
+NIGHT_BIN_SPACING = 90
+
 
 class Collectible:
     bin_color   = None
@@ -39,38 +45,54 @@ class Collectible:
         self.platform             = platform
         self.platform.collectible = self
         self.waste_count          = 0
-        self.direction            = 1  # for moving bins
+        self.direction            = 1
         self.tick                 = 0
         self.blink                = True
         self.dance_offset         = 0
         self.initial_x            = self.rect.centerx
 
+        # Position flottante pour éviter la troncature entière de pygame.Rect
+        self.float_x = float(self.rect.x)
+
     def update(self, dt):
         self.tick += 1
-        if self.game.level == 1:  # café level, bins oscillate around initial position
-            self.rect.centerx = self.initial_x + int(math.sin(self.tick * 0.05) * 30)
-        elif self.game.level == 2:  # evening level, bins approach Kris
-            if self.bin_color != 'green':  # La poubelle verte ne bouge pas
-                # Move towards Kris slowly
-                kris_x = self.game.kris.rect.centerx
-                dx = kris_x - self.rect.centerx
-                if abs(dx) > 5:  # lower threshold
-                    speed = 5  # very slow speed
-                    direction = 1 if dx > 0 else -1
-                    self.rect.x += speed * dt * direction
-            
-            # Dance: small vertical movement
+
+        if self.game.level == 1:  # Cafét — oscillation autour de la position initiale
+            self.float_x = self.initial_x - self.image.get_width() / 2 + math.sin(self.tick * 0.05) * 30
+            self.rect.x  = int(self.float_x)
+
+        elif self.game.level == 2:  # Nuit — file indienne vers Kris
+            kris_cx = self.game.kris.rect.centerx
+            bin_cx  = self.rect.centerx
+
+            # Vérifie si une autre poubelle est trop proche devant (entre cette
+            # poubelle et Kris, c'est-à-dire à gauche puisqu'elles viennent de droite)
+            blocked = False
+            for other in self.game.collectibles:
+                if other is self:
+                    continue
+                other_cx = other.rect.centerx
+                # "devant" = plus proche de Kris = plus à gauche
+                if other_cx < bin_cx and (bin_cx - other_cx) < NIGHT_BIN_SPACING:
+                    blocked = True
+                    break
+
+            dx = kris_cx - bin_cx
+            if abs(dx) > 2 and not blocked:
+                direction = 1 if dx > 0 else -1
+                self.float_x += NIGHT_BIN_SPEED * dt * direction
+                self.rect.x   = int(self.float_x)
+
+            # Légère oscillation verticale
             self.dance_offset = math.sin(self.tick * 0.1) * 3
-            
-            # Blinking (sauf pour la verte)
-            if self.bin_color != 'green':
-                self.blink = (self.tick % 20) < 10  # blink every 10 frames out of 20
-            else:
-                self.blink = True  # La verte ne clignote pas
-            
-            # Check collision with Kris (sauf pour la verte)
-            if self.bin_color != 'green' and self.rect.colliderect(self.game.kris.rect):
+
+            # Clignotement
+            self.blink = (self.tick % 20) < 10
+
+            # Contact avec Kris → game over
+            if self.rect.colliderect(self.game.kris.rect):
                 self.game._trigger_game_over()
+
         else:
             self.dance_offset = 0
             self.blink = True
@@ -92,14 +114,12 @@ class Collectible:
             self.game.collectibles.remove(self)
 
     def render(self, surf, scroll):
-        # scroll est un entier (pas une liste)
         draw_x = self.rect.x - scroll
         draw_y = self.rect.y + self.dance_offset
 
         if self.blink:
             surf.blit(self.image, (draw_x, draw_y))
         else:
-            # Dim version for blinking
             temp_surf = pygame.Surface(self.image.get_size(), pygame.SRCALPHA)
             temp_surf.blit(self.image, (0, 0))
             temp_surf.set_alpha(100)
