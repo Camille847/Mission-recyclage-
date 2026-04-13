@@ -50,22 +50,26 @@ class Collectible:
         if self.game.level == 1:  # café level, bins oscillate around initial position
             self.rect.centerx = self.initial_x + int(math.sin(self.tick * 0.05) * 30)
         elif self.game.level == 2:  # evening level, bins approach Kris
-            # Move towards Kris slowly
-            kris_x = self.game.kris.rect.centerx
-            dx = kris_x - self.rect.centerx
-            if abs(dx) > 5:  # lower threshold
-                speed = 5  # very slow speed
-                direction = 1 if dx > 0 else -1
-                self.rect.x += speed * dt * direction
+            if self.bin_color != 'green':  # La poubelle verte ne bouge pas
+                # Move towards Kris slowly
+                kris_x = self.game.kris.rect.centerx
+                dx = kris_x - self.rect.centerx
+                if abs(dx) > 5:  # lower threshold
+                    speed = 5  # very slow speed
+                    direction = 1 if dx > 0 else -1
+                    self.rect.x += speed * dt * direction
             
             # Dance: small vertical movement
             self.dance_offset = math.sin(self.tick * 0.1) * 3
             
-            # Blinking
-            self.blink = (self.tick % 20) < 10  # blink every 10 frames out of 20
+            # Blinking (sauf pour la verte)
+            if self.bin_color != 'green':
+                self.blink = (self.tick % 20) < 10  # blink every 10 frames out of 20
+            else:
+                self.blink = True  # La verte ne clignote pas
             
-            # Check collision with Kris
-            if self.rect.colliderect(self.game.kris.rect):
+            # Check collision with Kris (sauf pour la verte)
+            if self.bin_color != 'green' and self.rect.colliderect(self.game.kris.rect):
                 self.game._trigger_game_over()
         else:
             self.dance_offset = 0

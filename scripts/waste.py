@@ -8,6 +8,7 @@ WASTE_TYPES = {
     'bouteille': {'image': 'assets/dechets/Bouteille.png', 'bin_color': 'yellow', 'scale': 0.08},
     'canette':   {'image': 'assets/dechets/canette.png',   'bin_color': 'yellow', 'scale': 0.08},
     'banane':    {'image': 'assets/dechets/Banane.png',    'bin_color': 'brown',  'scale': 0.08},
+    'cup':       {'image': 'assets/dechets/Cup.png',       'bin_color': 'green',  'scale': 0.08},
 }
 
 _waste_images = {}
@@ -167,7 +168,7 @@ class WasteManager:
         
         # Compter les déchets au sol
         ground_wastes = sum(1 for w in self.wastes if w.on_ground)
-        if ground_wastes >= 15:
+        if ground_wastes >= 5:
             if hasattr(self.game, '_trigger_game_over'):
                 self.game._trigger_game_over()
 

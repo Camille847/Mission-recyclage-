@@ -26,10 +26,10 @@ BTN_DANGER_HOVER  = (160, 90, 80)
 
 BTN_TEXT = (245, 245, 245)
 
-TITLE_COLOR  = (80, 80, 80)     # gris foncé
+TITLE_COLOR  = (0, 0, 0)     # noir
 TITLE_SHADOW = (40, 40, 40)     # gris sombre
 
-SUBTITLE_COLOR = (100, 100, 100)
+SUBTITLE_COLOR = (0, 0, 0)
 GAMEOVER_COLOR    = (220, 80, 80)
 LEAF_COLOR        = (80, 200, 100, 160)
 
@@ -97,28 +97,28 @@ class Menu:
             # -----------------------------
             # TITRES
             # -----------------------------
-            title_font = _font(56)
+            title_font = _font(150)
             self.title_surf = title_font.render("Mission", True, TITLE_COLOR)
             self.title_rect = self.title_surf.get_rect(center=(game.width / 2, 85))
 
-            title2_font = _font(46)
+            title2_font = _font(120)
             self.title2_surf = title2_font.render("Recyclage !", True, TITLE_COLOR)
-            self.title2_rect = self.title2_surf.get_rect(center=(game.width // 2, 160))
+            self.title2_rect = self.title2_surf.get_rect(center=(game.width // 2, 200))
 
             self.title_shadow_surf = title_font.render("Mission", True, TITLE_SHADOW)
             self.title2_shadow_surf = title2_font.render("Recyclage !", True, TITLE_SHADOW)
 
-            sub_font = _font(18)
+            sub_font = _font(60)
             self.sub_surf = sub_font.render(
                 "Trie les déchets, sauve la planète !", True, SUBTITLE_COLOR
             )
-            self.sub_rect = self.sub_surf.get_rect(center=(game.width / 2, 215))
+            self.sub_rect = self.sub_surf.get_rect(center=(game.width / 2, 300))
 
             # -----------------------------
             # GAME OVER
             # -----------------------------
             go_font = _font(76)
-            self.game_over_surf = go_font.render("Game Over", True, GAMEOVER_COLOR)
+            self.game_over_surf = go_font.render("Game Over", True, (0, 0, 0))
             self.game_over_rect = self.game_over_surf.get_rect(center=(game.width / 2, 95))
 
             # -----------------------------
@@ -128,16 +128,30 @@ class Menu:
             cy = game.height // 2
             self.niveaux_button = Button(cx, cy - 15, "Niveaux")
             self.retry_button = Button(cx, cy - 60, "Rejouer")
+
+            self.regle_button = Button(cx, cy - 80, "Regle")
+            self.rules_back_button = Button(0, 0, "Retour")
+            self.rules_back_button.rect.bottomright = (self.game.width - 20, self.game.height - 20)
+            self.rules_back_button.text_rect = self.rules_back_button.rendered_text.get_rect(
+                center=self.rules_back_button.rect.center)
+            self.rules_back_button._shadow_rect = self.rules_back_button.rect.move(3, 4)
+            self.in_rules = False
+
             self.menu_button = Button(cx, cy, "Menu")
             self.quit_button = Button(cx, cy + 60, "Quitter", danger=True)
 
             # Boutons pour la sélection de niveau
-            self.matin_button = Button(cx, cy - 40, "Matin")
+            spacing = 55
+
+            self.matin_button = Button(cx, cy - spacing, "Matin")
             self.cafe_button = Button(cx, cy, "Café")
-            self.soir_button = Button(cx, cy + 40, "Soir")
-            self.back_button = Button(cx, cy + 80, "Retour")
+            self.soir_button = Button(cx, cy + spacing, "Soir")
+            self.back_button = Button(cx, cy + spacing + 60, "Retour")
 
             self.in_level_select = False
+
+            # Bouton pour l'écran de victoire
+            self.victory_button = Button(cx, cy + 50, "Menu Principal")
 
             # -----------------------------
             # MESSAGES GAME OVER
@@ -186,7 +200,9 @@ class Menu:
             self.kris_image = pygame.image.load("assets/personnage/Kris.png").convert_alpha()
             self.kris_image = pygame.transform.scale(self.kris_image, (int(self.kris_image.get_width() * 0.15), int(self.kris_image.get_height() * 0.15)))  # Plus petite
             self.morning_bg = load_bg('assets/decor/Décor Matin.png', (game.width, game.height))
-
+            self.rules_image = load_bg("assets/personnage/regles.png", (game.width, game.height))
+            self.niveau_image = load_bg("assets/decor/niveau.png", (game.width, game.height))
+            self.bravo_image = load_bg("assets/decor/Bravo.png", (game.width, game.height))
             ground_y = int(self.game.height * 0.65)
 
             self.decor_flowers = [
@@ -250,6 +266,12 @@ class Menu:
             self._tick += 1  # Pour l'animation des toiles
             if self.niveaux_button.update(self.game.mouse_pos, self.game.mouse_pressed):
                 self.in_level_select = True
+                pygame.mixer.music.stop()
+
+            if self.regle_button.update(self.game.mouse_pos, self.game.mouse_pressed):
+                self.in_rules = True
+                pygame.mixer.music.stop()
+
 
             if self.quit_button.update(self.game.mouse_pos, self.game.mouse_pressed):
                 self.game.quit()
@@ -273,6 +295,8 @@ class Menu:
                 self.game.play()
             if self.back_button.update(self.game.mouse_pos, self.game.mouse_pressed):
                 self.in_level_select = False
+                if not pygame.mixer.music.get_busy():
+                    play("assets/music/music.mp3", 0.5)
 
         def update_game_over(self):
             self._tick += 1  # Pour l'animation des toiles
@@ -288,57 +312,38 @@ class Menu:
             if self.quit_button.update(self.game.mouse_pos, self.game.mouse_pressed):
                 self.game.quit()
 
+        def update_victory(self):
+            if self.victory_button.update(self.game.mouse_pos, self.game.mouse_pressed):
+                play("assets/music/music.mp3", 0.5)
+                self.game.to_menu()
+
         def render_main(self, surf):
             if self.show_menu_bg:
                 self._draw_bg(surf)
             self._draw_title(surf)
 
+            self.regle_button.render(surf)
             self.niveaux_button.render(surf)
             self.quit_button.render(surf)
 
         def render_game_over(self, surf):
-            self._draw_old_bg(surf)
+            # Fond noir pour le game over
+            surf.fill((100, 100, 100))
 
             bob = int(math.sin(self._tick * 0.05) * 3)
             surf.blit(self.game_over_surf, self.game_over_rect.move(0, bob))
 
             if self.death_surf:
-                pad = 12
-                box = self.death_rect.inflate(pad * 2, pad * 2)
-                self._draw_panel(surf, box, alpha=60)
                 surf.blit(self.death_surf, self.death_rect)
 
-            top_btn = min(
-                self.retry_button.rect.y,
-                self.menu_button.rect.y,
-                self.quit_button.rect.y,
-            )
-            bot_btn = max(
-                self.retry_button.rect.bottom,
-                self.menu_button.rect.bottom,
-                self.quit_button.rect.bottom,
-            )
-            panel_rect = pygame.Rect(
-                self.game.width // 2 - 120,
-                top_btn - 12,
-                240,
-                bot_btn - top_btn + 24,
-            )
-            self._draw_panel(surf, panel_rect)
 
             self.retry_button.render(surf)
             self.menu_button.render(surf)
             self.quit_button.render(surf)
 
         def render_level_select(self, surf):
-            # Fond gris simple
-            surf.fill((175, 175, 175))
-
-            # Titre de sélection de niveau
-            select_font = _font(36)
-            select_surf = select_font.render("Choisissez un niveau", True, TITLE_COLOR)
-            select_rect = select_surf.get_rect(center=(self.game.width / 2, 100))
-            surf.blit(select_surf, select_rect)
+            # Utiliser l'image niveau.png comme fond
+            surf.blit(self.niveau_image, (0, 0))
 
             # Boutons des niveaux
             self.matin_button.render(surf)
@@ -347,6 +352,13 @@ class Menu:
 
             # Bouton Retour
             self.back_button.render(surf)
+
+        def render_victory(self, surf):
+            # Afficher l'image Bravo.png
+            surf.blit(self.bravo_image, (0, 0))
+
+            # Bouton Menu Principal
+            self.victory_button.render(surf)
 
         def _draw_old_bg(self, surf):
             w, h = surf.get_size()
@@ -399,3 +411,13 @@ class Menu:
                 # Lignes pour simuler le carton
                 pygame.draw.line(surf, box_outline, (bx + 15, by), (bx + 15, by + bh), 1)
                 pygame.draw.line(surf, box_outline, (bx + bw - 15, by), (bx + bw - 15, by + bh), 1)
+
+        def update_rules(self):
+            if self.rules_back_button.update(self.game.mouse_pos, self.game.mouse_pressed):
+                self.in_rules = False
+                if not pygame.mixer.music.get_busy():
+                    play("assets/music/music.mp3", 0.5)
+
+        def render_rules(self, surf):
+            surf.blit(self.rules_image, (0, 0))
+            self.rules_back_button.render(surf)

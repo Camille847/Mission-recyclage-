@@ -104,6 +104,8 @@ class Game:
             self.text_input.text = self.client.username
             self.text_input.resize()
 
+        self.game_completed = False  # Pour suivre si le jeu est terminé avec succès
+
     def set_username(self, username):
         if self.client.registered:
             res = self.client.setUsername(username)
@@ -136,6 +138,8 @@ class Game:
 
     def to_menu(self):
         self._reset()
+        self.game_completed = False  # Réinitialiser l'état de victoire
+        self.menu.show_menu_bg = True  # Réactiver le fond du menu
         self.in_game = False
 
     def quit(self):
@@ -214,7 +218,14 @@ class Game:
     def _advance_level(self):
         next_level = self.level + 1
         if next_level >= MAX_LEVEL:
-            next_level = 0  # Boucle au premier niveau
+            # Le jeu est terminé avec succès (niveau soir complété)
+            self.game_completed = True
+            self.in_game = False
+            self.menu.show_menu_bg = False
+            self.menu.in_level_select = False
+            self.menu.in_rules = False
+            return  # Sortir sans continuer l'avancement normal
+        
         self.level       = next_level
         self.bins_filled = 0
         self.correct_per_color = {c: 0 for c in BAR_ORDER}
@@ -289,7 +300,11 @@ class Game:
         self.mouse_pos = pygame.mouse.get_pos()
 
         if self.in_game or self.game_over:
-            self.window.blit(self.background, (0, 0))
+            if self.game_over:
+                # Fond gris pour le game over
+                self.window.fill((100, 100, 100))
+            else:
+                self.window.blit(self.background, (0, 0))
         else:
             self.window.blit(self.level_backgrounds[0], (0, 0))
 
@@ -345,13 +360,36 @@ class Game:
             self.menu.update_game_over()
             self.menu.render_game_over(self.window)
 
+
+            # UPDATE
         else:
-            if self.menu.in_level_select:
+            # PRIORITÉ ABSOLUE À LA VICTOIRE
+            if self.game_completed:
+                self.menu.update_victory()
+                self.menu.render_victory(self.window)
+
+            elif self.menu.in_rules:
+                self.menu.update_rules()
+                self.menu.render_rules(self.window)
+
+            elif self.menu.in_level_select:
                 self.menu.update_level_select()
+                self.menu.render_level_select(self.window)
+
             else:
                 self.menu.update_main()
-            if self.menu.in_level_select:
+                self.menu.render_main(self.window)
+
+            # RENDER
+            if self.menu.in_rules:
+                self.menu.render_rules(self.window)
+
+            elif self.menu.in_level_select:
                 self.menu.render_level_select(self.window)
+
+            elif self.game_completed:
+                self.menu.render_victory(self.window)
+
             else:
                 self.menu.render_main(self.window)
 
