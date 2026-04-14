@@ -82,7 +82,7 @@ class Game:
         self._level_names     = ['Matin', 'Cafét', 'Soir']
 
         self.font_score = pygame.font.SysFont('arial', 26, bold=True)
-        self.font_level = pygame.font.SysFont('arial', 22, bold=True)
+        self.font_level = pygame.font.SysFont('arial', 32, bold=True)
         self.font_msg   = pygame.font.SysFont('arial', 42, bold=True)
 
         self.collectibles: list = []
@@ -94,6 +94,18 @@ class Game:
 
         self.kris = Kris(self, bottom=self.ground_y)
         self.menu = Menu(self)
+        
+        # Bouton menu principal pendant le jeu
+        from scripts.menu import Button
+        self.in_game_menu_button = Button(self.width - 100, 20, "Menu", danger=False)
+        self.in_game_menu_button.rect.width = 80
+        self.in_game_menu_button.rect.height = 30
+        self.in_game_menu_button.rect.right = self.width - 20
+        self.in_game_menu_button.rect.top = 75
+        self.in_game_menu_button.font = pygame.font.SysFont('arial', 16, bold=True)
+        self.in_game_menu_button.rendered_text = self.in_game_menu_button.font.render(self.in_game_menu_button.text, True, (245, 245, 245))
+        self.in_game_menu_button.text_rect = self.in_game_menu_button.rendered_text.get_rect(center=self.in_game_menu_button.rect.center)
+        self.in_game_menu_button._shadow_rect = self.in_game_menu_button.rect.move(2, 3)
 
         self.client = Client('mission_recyclage')
         self.message       = ''
@@ -375,11 +387,15 @@ class Game:
             self._render_hud()
 
             if self.menu.death_surf and self.menu.death_rect:
-                self.window.blit(self.menu.death_surf, self.menu.death_rect)
+                 self.window.blit(self.menu.death_surf, self.menu.death_rect)
+             
+             # Bouton menu pendant le jeu
+            if self.in_game_menu_button.update(self.mouse_pos, self.mouse_pressed):
+                 self.to_menu()
 
             if self._level_msg_timer > 0:
-                self._level_msg_timer -= dt_ms
-                self._render_level_message()
+                 self._level_msg_timer -= dt_ms
+                 self._render_level_message()
 
         elif self.game_over:
             for c in self.collectibles:
@@ -457,9 +473,12 @@ class Game:
         self.window.blit(level_surf, (self.width - level_surf.get_width() - 12, 8))
 
         prog_surf = self.font_level.render(
-            f'Poubelles : {self.bins_filled}/{BINS_PER_LEVEL}', True, (200, 240, 200)
-        )
+             f'Poubelles : {self.bins_filled}/{BINS_PER_LEVEL}', True, (200, 240, 200)
+         )
         self.window.blit(prog_surf, (self.width - prog_surf.get_width() - 12, 34))
+         
+         # Dessiner le bouton menu
+        self.in_game_menu_button.render(self.window)
 
     def _render_level_message(self):
         surf   = self.font_msg.render(self._level_msg, True, (255, 240, 80))

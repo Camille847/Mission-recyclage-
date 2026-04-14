@@ -36,7 +36,7 @@ except:
 
 # ─── Constantes de lancer ─────────────────────────────────────────────────────
 MIN_POWER   = 100
-MAX_POWER   = 1200
+MAX_POWER   = 2000
 GRAVITY     = 800
 
 

@@ -129,7 +129,7 @@ class Menu:
             self.niveaux_button = Button(cx, cy - 15, "Niveaux")
             self.retry_button = Button(cx, cy - 60, "Rejouer")
 
-            self.regle_button = Button(cx, cy - 80, "Regle")
+            self.regle_button = Button(cx, cy - 80, "Règles")
             self.rules_back_button = Button(0, 0, "Retour")
             self.rules_back_button.rect.bottomright = (self.game.width - 20, self.game.height - 20)
             self.rules_back_button.text_rect = self.rules_back_button.rendered_text.get_rect(
@@ -151,7 +151,7 @@ class Menu:
             self.in_level_select = False
 
             # Bouton pour l'écran de victoire
-            self.victory_button = Button(cx, cy + 50, "Menu Principal")
+            self.victory_button = Button(cx, cy + 150, "Menu Principal")
 
             # -----------------------------
             # MESSAGES GAME OVER
@@ -203,6 +203,7 @@ class Menu:
             self.rules_image = load_bg("assets/personnage/regles.png", (game.width, game.height))
             self.niveau_image = load_bg("assets/decor/niveau.png", (game.width, game.height))
             self.bravo_image = load_bg("assets/decor/Bravo.png", (game.width, game.height))
+            self.game_over_bg = load_bg("assets/decor/Game over.png", (game.width, game.height))
             ground_y = int(self.game.height * 0.65)
 
             self.decor_flowers = [
@@ -225,7 +226,8 @@ class Menu:
 
         def new_message(self):
             msg = random.choice(self.death_messages)
-            surf = self.death_font.render(msg, True, (255, 240, 180))
+            bigger_font = _font(48)
+            surf = bigger_font.render(msg, True, (255, 240, 180))
             self.death_surf = surf
             self.death_rect = surf.get_rect(
                 center=(self.game.width / 2, self.game.height - 80)
@@ -327,11 +329,9 @@ class Menu:
             self.quit_button.render(surf)
 
         def render_game_over(self, surf):
-            # Fond noir pour le game over
-            surf.fill((100, 100, 100))
+            # Afficher l'image Game over.png comme fond
+            surf.blit(self.game_over_bg, (0, 0))
 
-            bob = int(math.sin(self._tick * 0.05) * 3)
-            surf.blit(self.game_over_surf, self.game_over_rect.move(0, bob))
 
             if self.death_surf:
                 surf.blit(self.death_surf, self.death_rect)
