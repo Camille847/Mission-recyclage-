@@ -2,7 +2,7 @@ import pygame
 import random
 pygame.init()
 
-from scripts.utils import move
+from scripts.utils import move, play
 from scripts.waste import WasteManager
 from scripts.bin import BIN_CLASSES
 from scripts.Kris import Kris
@@ -124,6 +124,8 @@ class Game:
         # File d'attente pour le spawn séquentiel au niveau nuit
         self._pending_bins: list = []   # liste de (color, x)
         self._spawn_timer: float = 0    # ms restantes avant prochain spawn
+
+        self.current_music = None
 
     def set_username(self, username):
         if self.client.registered:
@@ -339,6 +341,20 @@ class Game:
                 self.quit()
 
         self.mouse_pos = pygame.mouse.get_pos()
+
+        # Music management
+        if self.in_game and not self.game_over and not self.game_completed:
+            if self.current_music != 'music2':
+                play("assets/music/music2.mp3", 0.5)
+                self.current_music = 'music2'
+        elif self.game_over:
+            if self.current_music != 'echec':
+                play("assets/music/echec.mp3", 0.5)
+                self.current_music = 'echec'
+        elif self.game_completed:
+            if self.current_music != 'reussite':
+                play("assets/music/reussite.mp3", 0.5)
+                self.current_music = 'reussite'
 
         if self.in_game or self.game_over:
             if self.game_over:
